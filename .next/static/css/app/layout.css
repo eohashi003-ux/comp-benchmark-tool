@@ -1228,6 +1228,10 @@ video {
 .border-transparent {
   border-color: transparent;
 }
+.border-gray-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(229 231 235 / var(--tw-border-opacity));
+}
 .border-l-transparent {
   border-left-color: transparent;
 }
