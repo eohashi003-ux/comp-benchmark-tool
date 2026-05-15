@@ -1,11 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
-import { env } from "./env";
 
-if (!env.supabaseUrl || !env.supabaseAnonKey) {
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  "https://YOUR_PROJECT.supabase.co";
+
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  "YOUR_ANON_KEY";
+
+if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Missing Supabase config");
 }
 
-export const supabase = createClient(
-  env.supabaseUrl,
-  env.supabaseAnonKey
-);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
