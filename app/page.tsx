@@ -24,6 +24,7 @@ type BenchmarkRow = {
   p25: number;
   p50: number;
   p75: number;
+  country?: string;
 };
 
 type RoleQuery = {
@@ -107,9 +108,10 @@ export default function Home() {
     localStorage.setItem(recentRolesKey, JSON.stringify(updated));
   };
 
+  // ✅ FIXED + SAFE FETCH LOGIC
   const fetchBenchmarks = async (override?: RoleQuery) => {
-    const selectedFamily = (override?.family ?? family).trim();
-    const selectedLevel = (override?.level ?? level).trim();
+    const selectedFamily = (override?.family ?? family ?? "").trim();
+    const selectedLevel = (override?.level ?? level ?? "").trim();
     const selectedSalary = override?.salary ?? salary;
 
     setLoading(true);
@@ -119,10 +121,11 @@ export default function Home() {
     try {
       let query = supabase
         .from("market_benchmarks")
-        .select("id,family,level,p25,p50,p75")
+        .select("id,family,level,p25,p50,p75,country")
         .order("family", { ascending: true })
         .order("level", { ascending: true });
 
+      // only apply filters if they exist
       if (selectedFamily) {
         query = query.ilike("family", `%${selectedFamily}%`);
       }
@@ -139,8 +142,7 @@ export default function Home() {
         return;
       }
 
-      const results = (data ?? []) as BenchmarkRow[];
-      setRows(results);
+      setRows((data ?? []) as BenchmarkRow[]);
 
       if (!override && selectedFamily && selectedLevel) {
         saveRole({
@@ -151,6 +153,9 @@ export default function Home() {
           timestamp: Date.now(),
         });
       }
+    } catch (err: any) {
+      setError(err?.message ?? "Unexpected error");
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -185,9 +190,6 @@ export default function Home() {
           <h1 className="text-3xl font-semibold">
             Market Benchmark Tool
           </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Compare roles against market data.
-          </p>
         </div>
       </section>
 
@@ -206,26 +208,17 @@ export default function Home() {
 
               <div>
                 <Label>Job title</Label>
-                <Input
-                  value={job_title}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                />
+                <Input value={job_title} onChange={(e) => setJobTitle(e.target.value)} />
               </div>
 
               <div>
                 <Label>Family</Label>
-                <Input
-                  value={family}
-                  onChange={(e) => setFamily(e.target.value)}
-                />
+                <Input value={family} onChange={(e) => setFamily(e.target.value)} />
               </div>
 
               <div>
                 <Label>Level</Label>
-                <Input
-                  value={level}
-                  onChange={(e) => setLevel(e.target.value)}
-                />
+                <Input value={level} onChange={(e) => setLevel(e.target.value)} />
               </div>
 
               <div>
@@ -240,11 +233,7 @@ export default function Home() {
               </div>
 
               <Button type="submit" className="w-full">
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="h-4 w-4" />
-                )}
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search />}
                 Search
               </Button>
             </form>
@@ -270,9 +259,7 @@ export default function Home() {
                 </button>
               ))
             ) : (
-              <p className="text-sm text-slate-500">
-                No recent searches
-              </p>
+              <p className="text-sm text-slate-500">No recent searches</p>
             )}
           </Card>
 
@@ -298,30 +285,22 @@ export default function Home() {
 
             <div className="mt-4 space-y-3">
               {results.map((row, i) => (
-                <div
-                  key={i}
-                  className="flex justify-between rounded-lg border p-4"
-                >
+                <div key={i} className="flex justify-between border rounded-lg p-4">
                   <div>
                     <div className="font-medium">{row.family}</div>
-                    <div className="text-sm text-slate-500">
-                      {row.level}
-                    </div>
+                    <div className="text-sm text-slate-500">{row.level}</div>
                   </div>
 
                   <div className="text-right">
-                    <div className="font-semibold">
-                      {money(row.p50)}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      median
-                    </div>
+                    <div className="font-semibold">{money(row.p50)}</div>
+                    <div className="text-xs text-slate-500">median</div>
                   </div>
                 </div>
               ))}
             </div>
           </Card>
         </section>
+
       </section>
     </main>
   );
