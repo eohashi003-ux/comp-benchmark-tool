@@ -1,4 +1,4 @@
-import { colors, radius } from "@/lib/designSystem";
+import { ui } from "@/lib/designSystem";
 
 export default function Card({
   children,
@@ -7,7 +7,7 @@ export default function Card({
 }) {
   return (
     <div
-      className={`${colors.card} ${radius.card} border border-gray-200 p-4 shadow-sm`}
+      className={`${ui.card} ${ui.radius} p-5 shadow-sm hover:shadow-md transition-shadow`}
     >
       {children}
     </div>
