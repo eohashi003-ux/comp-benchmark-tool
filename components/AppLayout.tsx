@@ -1,4 +1,4 @@
-import { colors, spacing } from "@/lib/designSystem";
+import { ui } from "@/lib/designSystem";
 
 export default function AppLayout({
   children,
@@ -6,8 +6,8 @@ export default function AppLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${colors.background} min-h-screen`}>
-      <div className={`${spacing.page} max-w-6xl mx-auto`}>
+    <div className={`${ui.background} min-h-screen`}>
+      <div className={`${ui.page} max-w-6xl mx-auto`}>
         {children}
       </div>
     </div>
