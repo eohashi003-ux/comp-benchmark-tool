@@ -1,5 +1,5 @@
 export const ui = {
-  background: "bg-slate-50",
+  bbackground: "bg-gradient-to-b from-slate-50 to-slate-100",
   page: "bg-slate-50",
   card: "bg-white border border-slate-200",
   cardHover: "hover:shadow-md transition-shadow",
