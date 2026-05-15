@@ -1,15 +1,18 @@
-import { ui } from "@/lib/designSystem";
+import "./globals.css";
 
-export default function AppLayout({
+export const metadata = {
+  title: "Market Benchmark Tool",
+  description: "Benchmark compensation against market data",
+};
+
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${ui.background} min-h-screen`}>
-      <div className={`${ui.page} max-w-6xl mx-auto`}>
-        {children}
-      </div>
-    </div>
+    <html lang="en">
+      <body>{children}</body>
+    </html>
   );
 }
