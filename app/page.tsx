@@ -36,7 +36,7 @@ type BenchmarkRow = {
 };
 
 type RoleQuery = {
-  jobTitle: string;
+  job-title: string;
   family: string;
   level: string;
   salary: number | "";
@@ -84,7 +84,7 @@ function inferLevel(rows: BenchmarkRow[], salary: number) {
 }
 
 export default function Home() {
-  const [jobTitle, setJobTitle] = useState("");
+  const [job_title, setjob_title] = useState("");
   const [family, setFamily] = useState("");
   const [level, setLevel] = useState("");
   const [salary, setSalary] = useState<number | "">("");
@@ -155,7 +155,7 @@ export default function Home() {
 
     if (!override && selectedFamily && selectedLevel) {
       saveRole({
-        jobTitle,
+        job_title,
         family: selectedFamily,
         level: selectedLevel,
         salary: selectedSalary,
@@ -217,7 +217,7 @@ export default function Home() {
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
                 <Label>Job title</Label>
-                <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+                <Input value={job_title} onChange={(e) => setjob_title(e.target.value)} />
               </div>
 
               <div className="space-y-2">
@@ -261,7 +261,7 @@ export default function Home() {
                   className="w-full text-left p-3 border rounded-lg hover:bg-gray-50"
                   onClick={() => fetchBenchmarks(role)}
                 >
-                  <div className="font-medium">{role.jobTitle}</div>
+                  <div className="font-medium">{role.job_title}</div>
                   <div className="text-sm text-slate-600">
                     {role.family} / {role.level}
                   </div>
