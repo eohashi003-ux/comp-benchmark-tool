@@ -50,6 +50,62 @@ const money = (value: number | null | undefined) => {
   }).format(value);
 };
 
+/* ---------------- BAR COMPONENT (NEW) ---------------- */
+
+function BenchmarkBar({
+  p25,
+  p50,
+  p75,
+  you,
+}: {
+  p25: number;
+  p50: number;
+  p75: number;
+  you: number;
+}) {
+  const min = p25;
+  const max = p75;
+
+  const clamp = (v: number) => Math.max(min, Math.min(max, v));
+
+  const pct = (v: number) => ((clamp(v) - min) / (max - min)) * 100;
+
+  const youPos = pct(you);
+
+  return (
+    <div className="mt-3">
+      {/* BAR */}
+      <div className="relative h-2 w-full rounded-full bg-slate-200">
+        <div className="absolute left-0 top-0 h-2 w-full rounded-full bg-gradient-to-r from-slate-300 via-slate-400 to-slate-300" />
+
+        {/* YOU DOT */}
+        <div
+          className="absolute top-1/2 -translate-y-1/2"
+          style={{ left: `${youPos}%` }}
+        >
+          <div className="h-3 w-3 rounded-full bg-emerald-500 shadow" />
+        </div>
+
+        {/* P25 marker */}
+        <div className="absolute left-0 top-1/2 -translate-y-1/2">
+          <div className="h-2 w-2 rounded-full bg-slate-600" />
+        </div>
+
+        {/* P75 marker */}
+        <div className="absolute right-0 top-1/2 -translate-y-1/2">
+          <div className="h-2 w-2 rounded-full bg-slate-600" />
+        </div>
+      </div>
+
+      {/* LABELS */}
+      <div className="mt-2 flex justify-between text-xs text-slate-500">
+        <span>P25</span>
+        <span>P75</span>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- COMPONENT ---------------- */
 
 export default function Home() {
@@ -65,7 +121,7 @@ export default function Home() {
 
   const [recentRoles, setRecentRoles] = useState<RoleQuery[]>([]);
 
-  /* -------- LOAD RECENT -------- */
+  /* ---------------- RECENT SEARCHES (UNCHANGED LOGIC) ---------------- */
 
   useEffect(() => {
     try {
@@ -75,8 +131,6 @@ export default function Home() {
       localStorage.removeItem(recentRolesKey);
     }
   }, []);
-
-  /* -------- SAVE SEARCH (FIXED SNAPSHOT BUG) -------- */
 
   const saveRole = (role: RoleQuery) => {
     const updated = [
@@ -92,7 +146,7 @@ export default function Home() {
     localStorage.setItem(recentRolesKey, JSON.stringify(updated));
   };
 
-  /* -------- FETCH DATA -------- */
+  /* ---------------- FETCH ---------------- */
 
   const fetchBenchmarks = async (override?: RoleQuery) => {
     const selectedFamily = (override?.family ?? family).trim();
@@ -127,7 +181,6 @@ export default function Home() {
       const safe = data ?? [];
       setRows(safe);
 
-      /* IMPORTANT: snapshot correct values into recent search */
       if (!override && selectedFamily && selectedLevel) {
         saveRole({
           job_title,
@@ -147,8 +200,6 @@ export default function Home() {
     fetchBenchmarks();
   };
 
-  /* -------- RESULTS -------- */
-
   const results = useMemo(() => {
     const s = Number(salary);
 
@@ -158,7 +209,7 @@ export default function Home() {
     }));
   }, [rows, salary]);
 
-  /* -------- RENDER -------- */
+  /* ---------------- UI ---------------- */
 
   return (
     <main className="min-h-screen bg-gray-50 text-slate-950">
@@ -183,46 +234,23 @@ export default function Home() {
             <h2 className="mb-4 font-semibold">Search</h2>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-
               <div>
                 <Label>Job title</Label>
                 <Input value={job_title} onChange={(e) => setJobTitle(e.target.value)} />
               </div>
 
-              {/* FAMILY DROPDOWN */}
               <div>
                 <Label>Family</Label>
-                <select
-                  className="w-full border rounded p-2"
-                  value={family}
-                  onChange={(e) => setFamily(e.target.value)}
-                >
-                  <option value="">Select family</option>
-                  <option value="Finance">Finance</option>
-                  <option value="HR">HR</option>
-                  <option value="Engineering">Engineering</option>
-                  <option value="Sales">Sales</option>
-                </select>
+                <Input value={family} onChange={(e) => setFamily(e.target.value)} />
               </div>
 
-              {/* LEVEL DROPDOWN */}
               <div>
                 <Label>Level</Label>
-                <select
-                  className="w-full border rounded p-2"
-                  value={level}
-                  onChange={(e) => setLevel(e.target.value)}
-                >
-                  <option value="">Select level</option>
-                  <option value="L1">L1</option>
-                  <option value="L2">L2</option>
-                  <option value="L3">L3</option>
-                  <option value="L4">L4</option>
-                </select>
+                <Input value={level} onChange={(e) => setLevel(e.target.value)} />
               </div>
 
               <div>
-                <Label>Your salary</Label>
+                <Label>Salary</Label>
                 <Input
                   type="number"
                   value={salary}
@@ -239,7 +267,7 @@ export default function Home() {
             </form>
           </Card>
 
-          {/* RECENT SEARCHES */}
+          {/* RECENT SEARCHES (UNCHANGED BEHAVIOUR) */}
           <Card>
             <h2 className="mb-2 flex items-center gap-2 font-semibold">
               <Clock3 className="h-4 w-4" /> Recent
@@ -279,7 +307,8 @@ export default function Home() {
 
             {loading && (
               <p className="mt-4 flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading...
               </p>
             )}
 
@@ -289,46 +318,47 @@ export default function Home() {
               </p>
             )}
 
-            <div className="mt-4 space-y-3">
-              {results.map((r, i) => {
-                const s = Number(salary);
+            <div className="mt-4 space-y-4">
+              {results.map((r, i) => (
+                <div key={i} className="rounded border p-4 bg-white">
+                  <div className="font-medium">{r.family}</div>
+                  <div className="text-xs text-slate-500">{r.level}</div>
 
-                return (
-                  <div key={i} className="border rounded p-4">
-                    <div className="font-medium">{r.family}</div>
-                    <div className="text-xs text-slate-500 mb-3">
-                      {r.level}
+                  {/* BAR VISUAL */}
+                  <BenchmarkBar
+                    p25={r.p25}
+                    p50={r.p50}
+                    p75={r.p75}
+                    you={Number(salary)}
+                  />
+
+                  {/* VALUE ROW */}
+                  <div className="mt-3 grid grid-cols-3 text-sm text-center">
+                    <div>
+                      <div className="text-xs text-slate-500">P25</div>
+                      <div>{money(r.p25)}</div>
                     </div>
 
-                    {/* METRICS ROW */}
-                    <div className="grid grid-cols-4 gap-3 text-center text-sm">
-
-                      <div>
-                        <div className="text-xs text-slate-500">P25</div>
-                        <div className="font-medium">{money(r.p25)}</div>
+                    <div>
+                      <div className="text-xs text-emerald-600 font-semibold">
+                        YOU
                       </div>
-
-                      <div>
-                        <div className="text-xs text-slate-500">YOU</div>
-                        <div className="font-semibold text-emerald-600">
-                          {money(s)}
-                        </div>
+                      <div className="font-semibold text-emerald-600">
+                        {money(Number(salary))}
                       </div>
+                    </div>
 
-                      <div>
-                        <div className="text-xs text-slate-500">P50</div>
-                        <div className="font-medium">{money(r.p50)}</div>
-                      </div>
+                    <div>
+                      <div className="text-xs text-slate-500">P50</div>
+                      <div>{money(r.p50)}</div>
+                    </div>
 
-                      <div>
-                        <div className="text-xs text-slate-500">P75</div>
-                        <div className="font-medium">{money(r.p75)}</div>
-                      </div>
-
+                    <div className="col-span-3 mt-2 text-xs text-slate-500">
+                      P75: {money(r.p75)}
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </Card>
         </section>
