@@ -1,3 +1,4 @@
+// lib/designSystem.ts
 export const ui = {
   background: "bg-slate-50",
   page: "bg-slate-50",
