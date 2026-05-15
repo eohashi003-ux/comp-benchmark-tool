@@ -1,4 +1,5 @@
 export const ui = {
+  background: "bg-slate-50",   // 👈 add this back
   page: "bg-slate-50",
   card: "bg-white border border-slate-200",
   cardHover: "hover:shadow-md transition-shadow",
