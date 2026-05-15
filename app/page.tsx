@@ -1,6 +1,12 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   BarChart3,
   Clock3,
@@ -24,7 +30,6 @@ type BenchmarkRow = {
   p25: number;
   p50: number;
   p75: number;
-  country?: string;
 };
 
 type RoleQuery = {
@@ -102,17 +107,15 @@ export default function Home() {
           `${r.family}-${r.level}-${r.salary}` !==
           `${role.family}-${role.level}-${role.salary}`
       ),
-    ].slice(0, 5);
+    ].slice(0, 4);
 
     setRecentRoles(updated);
     localStorage.setItem(recentRolesKey, JSON.stringify(updated));
   };
 
-  // ✅ FIXED + SAFE FETCH LOGIC
   const fetchBenchmarks = async (override?: RoleQuery) => {
-    const selectedFamily = (override?.family ?? family ?? "").trim();
-    const selectedLevel = (override?.level ?? level ?? "").trim();
-    const selectedSalary = override?.salary ?? salary;
+    const selectedFamily = (override?.family ?? family).trim();
+    const selectedLevel = (override?.level ?? level).trim();
 
     setLoading(true);
     setError("");
@@ -121,11 +124,10 @@ export default function Home() {
     try {
       let query = supabase
         .from("market_benchmarks")
-        .select("id,family,level,p25,p50,p75,country")
-        .order("family", { ascending: true })
-        .order("level", { ascending: true });
+        .select("id,family,level,p25,p50,p75")
+        .order("family")
+        .order("level");
 
-      // only apply filters if they exist
       if (selectedFamily) {
         query = query.ilike("family", `%${selectedFamily}%`);
       }
@@ -134,27 +136,36 @@ export default function Home() {
         query = query.ilike("level", `%${selectedLevel}%`);
       }
 
-      const { data, error: fetchError } = await query;
+      const { data, error } = await query;
 
-      if (fetchError) {
-        setError(fetchError.message);
+      if (error) {
+        console.error(error);
+        setError(error.message);
         setRows([]);
         return;
       }
 
-      setRows((data ?? []) as BenchmarkRow[]);
+      console.log("Supabase data:", data);
+
+      const safe = data ?? [];
+      setRows(safe);
+
+      if (safe.length === 0) {
+        setError("No results found for this search");
+      }
 
       if (!override && selectedFamily && selectedLevel) {
         saveRole({
           job_title,
           family: selectedFamily,
           level: selectedLevel,
-          salary: selectedSalary,
+          salary,
           timestamp: Date.now(),
         });
       }
-    } catch (err: any) {
-      setError(err?.message ?? "Unexpected error");
+    } catch (e) {
+      console.error(e);
+      setError("Unexpected error fetching data");
       setRows([]);
     } finally {
       setLoading(false);
@@ -167,58 +178,66 @@ export default function Home() {
   };
 
   const results = useMemo<BenchmarkResult[]>(() => {
-    const currentSalary = Number(salary);
+    const s = Number(salary);
 
     return rows.map((row) => ({
       ...row,
-      diffToMedian: currentSalary ? currentSalary - row.p50 : null,
-      percentile: currentSalary
-        ? estimatePercentile(currentSalary, row.p25, row.p50, row.p75)
+      diffToMedian: salary ? s - row.p50 : null,
+      percentile: salary
+        ? estimatePercentile(s, row.p25, row.p50, row.p75)
         : null,
     }));
   }, [rows, salary]);
 
   return (
     <main className="min-h-screen bg-gray-50 text-slate-950">
-
       {/* HEADER */}
       <section className="border-b bg-white">
         <div className="mx-auto max-w-7xl px-6 py-8">
           <Badge className="mb-3 bg-emerald-100 text-emerald-900">
             Market intelligence
           </Badge>
+
           <h1 className="text-3xl font-semibold">
             Market Benchmark Tool
           </h1>
+
+          <p className="mt-2 text-sm text-slate-600">
+            Compare roles against market salary data.
+          </p>
         </div>
       </section>
 
       {/* BODY */}
       <section className="mx-auto grid max-w-7xl gap-6 px-6 py-6 lg:grid-cols-[380px_1fr]">
-
         {/* LEFT */}
         <aside className="space-y-4">
-
           <Card>
-            <h2 className="text-lg font-semibold mb-4">
-              Benchmark search
-            </h2>
+            <h2 className="mb-4 font-semibold">Search</h2>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-
               <div>
                 <Label>Job title</Label>
-                <Input value={job_title} onChange={(e) => setJobTitle(e.target.value)} />
+                <Input
+                  value={job_title}
+                  onChange={(e) => setJobTitle(e.target.value)}
+                />
               </div>
 
               <div>
                 <Label>Family</Label>
-                <Input value={family} onChange={(e) => setFamily(e.target.value)} />
+                <Input
+                  value={family}
+                  onChange={(e) => setFamily(e.target.value)}
+                />
               </div>
 
               <div>
                 <Label>Level</Label>
-                <Input value={level} onChange={(e) => setLevel(e.target.value)} />
+                <Input
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value)}
+                />
               </div>
 
               <div>
@@ -227,42 +246,46 @@ export default function Home() {
                   type="number"
                   value={salary}
                   onChange={(e) =>
-                    setSalary(e.target.value === "" ? "" : Number(e.target.value))
+                    setSalary(e.target.value ? Number(e.target.value) : "")
                   }
                 />
               </div>
 
               <Button type="submit" className="w-full">
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search />}
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search />
+                )}
                 Search
               </Button>
             </form>
           </Card>
 
           <Card>
-            <h2 className="flex items-center gap-2 text-lg font-semibold mb-3">
-              <Clock3 className="h-4 w-4" />
-              Recent
+            <h2 className="mb-2 flex items-center gap-2 font-semibold">
+              <Clock3 className="h-4 w-4" /> Recent
             </h2>
 
-            {recentRoles.length ? (
+            {recentRoles.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No recent searches
+              </p>
+            ) : (
               recentRoles.map((r) => (
                 <button
                   key={r.timestamp}
-                  className="w-full rounded-lg border p-3 text-left hover:bg-gray-50"
+                  className="w-full rounded border p-2 text-left hover:bg-gray-50"
                   onClick={() => fetchBenchmarks(r)}
                 >
                   <div className="font-medium">{r.job_title}</div>
-                  <div className="text-sm text-slate-600">
+                  <div className="text-xs text-slate-500">
                     {r.family} / {r.level}
                   </div>
                 </button>
               ))
-            ) : (
-              <p className="text-sm text-slate-500">No recent searches</p>
             )}
           </Card>
-
         </aside>
 
         {/* RIGHT */}
@@ -273,34 +296,43 @@ export default function Home() {
               Results
             </h2>
 
-            {error && (
-              <p className="mt-3 text-sm text-red-600">{error}</p>
+            {loading && (
+              <p className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading...
+              </p>
             )}
 
-            {!loading && !results.length && (
+            {!loading && searched && results.length === 0 && (
               <p className="mt-4 text-sm text-slate-500">
-                Run a search to see benchmarks
+                No results found
               </p>
             )}
 
             <div className="mt-4 space-y-3">
-              {results.map((row, i) => (
-                <div key={i} className="flex justify-between border rounded-lg p-4">
+              {results.map((r, i) => (
+                <div
+                  key={i}
+                  className="flex justify-between rounded border p-3"
+                >
                   <div>
-                    <div className="font-medium">{row.family}</div>
-                    <div className="text-sm text-slate-500">{row.level}</div>
+                    <div className="font-medium">{r.family}</div>
+                    <div className="text-xs text-slate-500">
+                      {r.level}
+                    </div>
                   </div>
 
                   <div className="text-right">
-                    <div className="font-semibold">{money(row.p50)}</div>
-                    <div className="text-xs text-slate-500">median</div>
+                    <div className="font-semibold">{money(r.p50)}</div>
+                    <div className="text-xs text-slate-500">
+                      median
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           </Card>
         </section>
-
       </section>
     </main>
   );
