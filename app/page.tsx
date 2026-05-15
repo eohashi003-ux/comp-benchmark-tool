@@ -326,7 +326,7 @@ export default function Home() {
 
                   {/* BAR VISUAL */}
                   <BenchmarkBar
-                    p25={money(r.p25}
+                    p25={r.p25}
                     p50={r.p50}
                     p75={r.p75}
                     you={Number(salary)}
