@@ -2,7 +2,13 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
-import { BarChart3, Clock3, Loader2, Search, X } from "lucide-react";
+import {
+  BarChart3,
+  Clock3,
+  Loader2,
+  Search,
+  X,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -67,6 +73,21 @@ function estimatePercentile(
   return Math.min(100, 75 + 25 * ((salary - p75) / p75));
 }
 
+/**
+ * Converts salary into a position along 0–100 scale between P25 and P75
+ */
+function salaryPosition(
+  salary: number,
+  p25: number,
+  p75: number
+) {
+  if (!p25 || !p75) return 50;
+  if (salary <= p25) return 0;
+  if (salary >= p75) return 100;
+
+  return ((salary - p25) / (p75 - p25)) * 100;
+}
+
 export default function Home() {
   const [job_title, setJobTitle] = useState("");
   const [family, setFamily] = useState("");
@@ -103,7 +124,6 @@ export default function Home() {
     localStorage.setItem(recentRolesKey, JSON.stringify(updated));
   };
 
-  // ✅ NEW: delete recent search
   const removeRecentRole = (timestamp: number) => {
     const updated = recentRoles.filter((r) => r.timestamp !== timestamp);
     setRecentRoles(updated);
@@ -176,6 +196,8 @@ export default function Home() {
         : null,
     }));
   }, [rows, salary]);
+
+  const salaryValue = Number(salary);
 
   return (
     <main className="min-h-screen bg-gray-50 text-slate-950">
@@ -250,25 +272,22 @@ export default function Home() {
             </form>
           </Card>
 
-          {/* RECENT SEARCHES */}
+          {/* RECENT */}
           <Card>
             <h2 className="mb-2 flex items-center gap-2 font-semibold">
               <Clock3 className="h-4 w-4" /> Recent
             </h2>
 
             {recentRoles.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No recent searches
-              </p>
+              <p className="text-sm text-slate-500">No recent searches</p>
             ) : (
               recentRoles.map((r) => (
                 <div
                   key={r.timestamp}
                   className="flex items-start justify-between gap-2 rounded border p-2 hover:bg-gray-50"
                 >
-                  {/* clickable area */}
                   <button
-                    className="text-left flex-1"
+                    className="flex-1 text-left"
                     onClick={() => fetchBenchmarks(r)}
                   >
                     <div className="font-medium">{r.job_title}</div>
@@ -277,7 +296,6 @@ export default function Home() {
                     </div>
                   </button>
 
-                  {/* delete button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -301,52 +319,57 @@ export default function Home() {
               Results
             </h2>
 
-            {loading && (
-              <p className="mt-4 flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading...
-              </p>
-            )}
+            <div className="mt-4 space-y-4">
+              {results.map((r, i) => {
+                const pos = salaryValue
+                  ? salaryPosition(salaryValue, r.p25, r.p75)
+                  : 50;
 
-            {!loading && searched && results.length === 0 && (
-              <p className="mt-4 text-sm text-slate-500">
-                No results found
-              </p>
-            )}
-
-            <div className="mt-4 space-y-3">
-              {results.map((r, i) => (
-                <div
-                  key={i}
-                  className="flex justify-between rounded border p-3"
-                >
-                  <div>
-                    <div className="font-medium">{r.family}</div>
-                    <div className="text-xs text-slate-500">
-                      {r.level}
-                    </div>
-                  </div>
-
-                  <div className="text-right min-w-[180px]">
-                    <div className="grid grid-cols-3 gap-3 text-center">
+                return (
+                  <div key={i} className="rounded border p-4 space-y-3">
+                    {/* header */}
+                    <div className="flex justify-between">
                       <div>
-                        <div className="text-xs text-slate-500">P25</div>
-                        <div className="font-medium">{money(r.p25)}</div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-slate-500">P50</div>
-                        <div className="font-semibold">{money(r.p50)}</div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-slate-500">P75</div>
-                        <div className="font-medium">{money(r.p75)}</div>
+                        <div className="font-medium">{r.family}</div>
+                        <div className="text-xs text-slate-500">
+                          {r.level}
+                        </div>
                       </div>
                     </div>
+
+                    {/* benchmark bar */}
+                    <div className="relative h-3 bg-slate-100 rounded-full">
+                      {/* P50 dot (centre reference) */}
+                      <div
+                        className="absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-slate-500"
+                        style={{ left: "50%" }}
+                      />
+
+                      {/* YOU dot */}
+                      {salary && (
+                        <div
+                          className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-emerald-500 border border-white"
+                          style={{ left: `${pos}%` }}
+                        />
+                      )}
+                    </div>
+
+                    {/* labels */}
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>P25 {money(r.p25)}</span>
+                      <span>P50 {money(r.p50)}</span>
+                      <span>P75 {money(r.p75)}</span>
+                    </div>
+
+                    {/* numeric row */}
+                    <div className="grid grid-cols-3 text-center text-sm">
+                      <div>{money(r.p25)}</div>
+                      <div className="font-semibold">{money(r.p50)}</div>
+                      <div>{money(r.p75)}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         </section>
