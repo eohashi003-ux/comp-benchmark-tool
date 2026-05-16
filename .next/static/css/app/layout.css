@@ -1014,6 +1014,9 @@ video {
 .grid-cols-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.grid-cols-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 .flex-row {
   flex-direction: row;
 }
@@ -1095,6 +1098,9 @@ video {
 .overflow-hidden {
   overflow: hidden;
 }
+.overflow-visible {
+  overflow: visible;
+}
 .overflow-y-auto {
   overflow-y: auto;
 }
@@ -1127,6 +1133,9 @@ video {
 }
 .rounded-sm {
   border-radius: calc(var(--radius) - 4px);
+}
+.rounded-xl {
+  border-radius: 0.75rem;
 }
 .rounded-t-\[10px\] {
   border-top-left-radius: 10px;
@@ -1183,6 +1192,10 @@ video {
 }
 .border-transparent {
   border-color: transparent;
+}
+.border-white {
+  --tw-border-opacity: 1;
+  border-color: rgb(255 255 255 / var(--tw-border-opacity));
 }
 .border-l-transparent {
   border-left-color: transparent;
@@ -1260,6 +1273,10 @@ video {
   --tw-bg-opacity: 1;
   background-color: rgb(255 255 255 / var(--tw-bg-opacity));
 }
+.bg-slate-700 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(51 65 85 / var(--tw-bg-opacity));
+}
 .bg-gradient-to-r {
   background-image: linear-gradient(to right, var(--tw-gradient-stops));
 }
@@ -1298,6 +1315,9 @@ video {
 }
 .p-\[1px\] {
   padding: 1px;
+}
+.p-5 {
+  padding: 1.25rem;
 }
 .px-2 {
   padding-left: 0.5rem;
@@ -1450,6 +1470,9 @@ video {
 .font-semibold {
   font-weight: 600;
 }
+.uppercase {
+  text-transform: uppercase;
+}
 .tabular-nums {
   --tw-numeric-spacing: tabular-nums;
   font-variant-numeric: var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction);
@@ -1462,6 +1485,9 @@ video {
 }
 .tracking-widest {
   letter-spacing: 0.1em;
+}
+.tracking-wide {
+  letter-spacing: 0.025em;
 }
 .text-accent-foreground {
   color: hsl(var(--accent-foreground));
@@ -1518,6 +1544,14 @@ video {
 .text-white {
   --tw-text-opacity: 1;
   color: rgb(255 255 255 / var(--tw-text-opacity));
+}
+.text-slate-800 {
+  --tw-text-opacity: 1;
+  color: rgb(30 41 59 / var(--tw-text-opacity));
+}
+.text-slate-900 {
+  --tw-text-opacity: 1;
+  color: rgb(15 23 42 / var(--tw-text-opacity));
 }
 .underline-offset-4 {
   text-underline-offset: 4px;
