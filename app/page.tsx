@@ -182,10 +182,16 @@ export default function Home() {
     ].slice(0, 3);
 
     setRecentRoles(updated);
-    localStorage.setItem(recentRolesKey, JSON.stringify(updated));
+
+    localStorage.setItem(
+      recentRolesKey,
+      JSON.stringify(updated)
+    );
   };
 
-  const fetchBenchmarks = async (override?: RoleQuery) => {
+  const fetchBenchmarks = async (
+    override?: RoleQuery
+  ) => {
     const selectedFamily = (
       override?.family ?? family
     ).trim();
@@ -212,35 +218,31 @@ export default function Home() {
         .from("market_benchmarks")
         .select(
           "id,family,sub_family,level,p25,p50,p75"
-        )
-        .order("family")
-        .order("sub_family")
-        .order("level");
+        );
 
       if (selectedFamily) {
-        query = query.ilike(
+        query = query.eq(
           "family",
-          `%${selectedFamily}%`
+          selectedFamily
         );
       }
 
-      // ✅ NEW SUB FAMILY FILTER
-      // Only applies if populated
+      // OPTIONAL SUB FAMILY FILTER
       if (selectedSubFamily) {
-        query = query.ilike(
+        query = query.eq(
           "sub_family",
-          `%${selectedSubFamily}%`
+          selectedSubFamily
         );
       }
 
       if (selectedLevel) {
-        query = query.ilike(
+        query = query.eq(
           "level",
-          `%${selectedLevel}%`
+          selectedLevel
         );
       }
 
-      const { data, error } = await query;
+      const { data, error } = await query.limit(1);
 
       if (error) {
         setError(error.message);
@@ -360,8 +362,6 @@ export default function Home() {
                   value={family}
                   onChange={(e) => {
                     setFamily(e.target.value);
-
-                    // Reset sub-family if family changes
                     setSubFamily("");
                   }}
                   className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
@@ -381,7 +381,7 @@ export default function Home() {
                 </select>
               </div>
 
-              {/* ✅ NEW SUB FAMILY SEARCH */}
+              {/* SUB FAMILY */}
               <div>
                 <Label>Sub Family</Label>
 
@@ -548,6 +548,7 @@ export default function Home() {
                   key={index}
                   className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
                 >
+                  {/* HEADER */}
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">
@@ -577,7 +578,122 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Existing formatting preserved */}
+                  {/* BENCHMARK BAR */}
+                  <div className="relative mt-6">
+                    <div className="relative h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div className="absolute left-0 top-0 h-full w-1/2 bg-emerald-200" />
+
+                      <div className="absolute right-0 top-0 h-full w-1/2 bg-emerald-400" />
+                    </div>
+
+                    {/* P50 DOT */}
+                    <div
+                      className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-slate-900 shadow"
+                      style={{ left: "50%" }}
+                    />
+
+                    {/* USER DOT */}
+                    {typeof activeSalary ===
+                      "number" && (
+                      <div
+                        className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white bg-emerald-500 shadow-lg"
+                        style={{
+                          left: `${getMarkerPosition(
+                            activeSalary,
+                            row.p25,
+                            row.p50,
+                            row.p75
+                          )}%`,
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* LABELS UNDER BAR */}
+                  <div className="mt-2 flex justify-between text-xs text-slate-500">
+                    <div>
+                      P25 • {money(row.p25)}
+                    </div>
+
+                    <div>
+                      P50 • {money(row.p50)}
+                    </div>
+
+                    <div>
+                      P75 • {money(row.p75)}
+                    </div>
+                  </div>
+
+                  {/* BENCHMARK CARDS */}
+                  <div className="mt-6 grid grid-cols-3 gap-4">
+                    <div className="rounded-xl bg-slate-50 p-3 text-center">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        P25
+                      </div>
+
+                      <div className="mt-1 text-lg font-semibold">
+                        {money(row.p25)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-100 p-3 text-center ring-1 ring-slate-200">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        P50
+                      </div>
+
+                      <div className="mt-1 text-lg font-bold">
+                        {money(row.p50)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3 text-center">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        P75
+                      </div>
+
+                      <div className="mt-1 text-lg font-semibold">
+                        {money(row.p75)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FOOTER */}
+                  <div className="mt-5 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        Market Position
+                      </div>
+
+                      <div className="mt-1 text-sm font-semibold text-slate-900">
+                        {row.percentile
+                          ? `~${Math.round(
+                              row.percentile
+                            )}th percentile`
+                          : "Not available"}
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        vs Median
+                      </div>
+
+                      <div
+                        className={`mt-1 text-sm font-semibold ${
+                          (row.diffToMedian ?? 0) >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }`}
+                      >
+                        {(row.diffToMedian ?? 0) >= 0
+                          ? "+"
+                          : ""}
+                        {money(
+                          row.diffToMedian ?? 0
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
