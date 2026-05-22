@@ -23,6 +23,8 @@ import Button from "@/components/Button";
 
 import { supabase } from "@/lib/supabase";
 
+/* ================= TYPES ================= */
+
 type BenchmarkRow = {
   id?: string | number;
   family: string;
@@ -47,6 +49,8 @@ type BenchmarkResult = BenchmarkRow & {
   percentile: number | null;
 };
 
+/* ================= CONSTANTS ================= */
+
 const currency = new Intl.NumberFormat("en-GB", {
   style: "currency",
   currency: "GBP",
@@ -63,42 +67,20 @@ const FAMILY_OPTIONS = [
 ];
 
 const SUB_FAMILY_OPTIONS: Record<string, string[]> = {
-  Engineering: [
-    "Software",
-    "Data",
-    "Infrastructure",
-    "Security",
-  ],
-  Finance: [
-    "FP&A",
-    "Accounting",
-    "Treasury",
-    "Tax",
-  ],
-  HR: [
-    "Talent Acquisition",
-    "People Operations",
-    "Reward",
-  ],
-  Sales: [
-    "Enterprise",
-    "SMB",
-    "Partnerships",
-  ],
+  Engineering: ["Software", "Data", "Infrastructure", "Security"],
+  Finance: ["FP&A", "Accounting", "Treasury", "Tax"],
+  HR: ["Talent Acquisition", "People Operations", "Reward"],
+  Sales: ["Enterprise", "SMB", "Partnerships"],
 };
 
-const LEVEL_OPTIONS = [
-  "L1",
-  "L2",
-  "L3",
-  "L4",
-];
+const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4"];
+
+/* ================= HELPERS ================= */
 
 function money(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "N/A";
   }
-
   return currency.format(value);
 }
 
@@ -110,39 +92,60 @@ function estimatePercentile(
 ) {
   if (!p25 || !p50 || !p75) return null;
 
-  if (salary <= p25) {
-    return Math.max(0, 25 * (salary / p25));
-  }
-
-  if (salary <= p50) {
-    return 25 + 25 * ((salary - p25) / (p50 - p25));
-  }
-
-  if (salary <= p75) {
-    return 50 + 25 * ((salary - p50) / (p75 - p50));
-  }
+  if (salary <= p25) return Math.max(0, 25 * (salary / p25));
+  if (salary <= p50)
+    return 25 + 25 * ((salary - p25) / Math.max(1, p50 - p25));
+  if (salary <= p75)
+    return 50 + 25 * ((salary - p50) / Math.max(1, p75 - p50));
 
   return Math.min(100, 75 + 25 * ((salary - p75) / p75));
 }
 
-function getMarkerPosition(
+/* ===== NEW: Normalize value for curve ===== */
+
+function normalizePosition(
   value: number,
   p25: number,
   p50: number,
   p75: number
 ) {
-  if (value <= p25) return 0;
-
-  if (value <= p50) {
-    return ((value - p25) / (p50 - p25)) * 50;
-  }
-
-  if (value <= p75) {
-    return 50 + ((value - p50) / (p75 - p50)) * 50;
-  }
-
-  return 100;
+  if (value <= p25) return 0.1;
+  if (value <= p50)
+    return 0.1 + 0.4 * ((value - p25) / Math.max(1, p50 - p25));
+  if (value <= p75)
+    return 0.5 + 0.4 * ((value - p50) / Math.max(1, p75 - p50));
+  return 0.9;
 }
+
+/* ===== NEW: Bell curve generator ===== */
+
+function getBellCurvePath(width: number, height: number) {
+  const points = 40;
+  let path = "";
+
+  for (let i = 0; i <= points; i++) {
+    const t = i / points;
+
+    // Gaussian-like curve centered at 0.5
+    const x = t * width;
+    const y =
+      height *
+      (1 -
+        Math.exp(-Math.pow((t - 0.5) / 0.2, 2)));
+
+    if (i === 0) {
+      path += `M ${x} ${height}`;
+    }
+
+    path += ` L ${x} ${y}`;
+  }
+
+  path += ` L ${width} ${height} Z`;
+
+  return path;
+}
+
+/* ================= COMPONENT ================= */
 
 export default function Home() {
   const [job_title, setJobTitle] = useState("");
@@ -162,10 +165,7 @@ export default function Home() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(recentRolesKey);
-
-      if (stored) {
-        setRecentRoles(JSON.parse(stored));
-      }
+      if (stored) setRecentRoles(JSON.parse(stored));
     } catch {
       localStorage.removeItem(recentRolesKey);
     }
@@ -182,33 +182,17 @@ export default function Home() {
     ].slice(0, 3);
 
     setRecentRoles(updated);
-
-    localStorage.setItem(
-      recentRolesKey,
-      JSON.stringify(updated)
-    );
+    localStorage.setItem(recentRolesKey, JSON.stringify(updated));
   };
 
-  const fetchBenchmarks = async (
-    override?: RoleQuery
-  ) => {
-    const selectedFamily = (
-      override?.family ?? family
-    ).trim();
-
-    const selectedSubFamily = (
-      override?.sub_family ?? sub_family ?? ""
-    ).trim();
-
-    const selectedLevel = (
-      override?.level ?? level
-    ).trim();
-
-    const selectedSalary =
-      override?.salary ?? salary;
+  const fetchBenchmarks = async (override?: RoleQuery) => {
+    const selectedFamily = (override?.family ?? family).trim();
+    const selectedSubFamily =
+      (override?.sub_family ?? sub_family ?? "").trim();
+    const selectedLevel = (override?.level ?? level).trim();
+    const selectedSalary = override?.salary ?? salary;
 
     setActiveSalary(selectedSalary);
-
     setLoading(true);
     setError("");
     setSearched(true);
@@ -216,31 +200,12 @@ export default function Home() {
     try {
       let query = supabase
         .from("market_benchmarks")
-        .select(
-          "id,family,sub_family,level,p25,p50,p75"
-        );
+        .select("id,family,sub_family,level,p25,p50,p75");
 
-      if (selectedFamily) {
-        query = query.eq(
-          "family",
-          selectedFamily
-        );
-      }
-
-      // OPTIONAL SUB FAMILY FILTER
-      if (selectedSubFamily) {
-        query = query.eq(
-          "sub_family",
-          selectedSubFamily
-        );
-      }
-
-      if (selectedLevel) {
-        query = query.eq(
-          "level",
-          selectedLevel
-        );
-      }
+      if (selectedFamily) query = query.eq("family", selectedFamily);
+      if (selectedSubFamily)
+        query = query.eq("sub_family", selectedSubFamily);
+      if (selectedLevel) query = query.eq("level", selectedLevel);
 
       const { data, error } = await query.limit(1);
 
@@ -251,12 +216,10 @@ export default function Home() {
       }
 
       const safeData = data ?? [];
-
       setRows(safeData);
 
-      if (safeData.length === 0) {
+      if (safeData.length === 0)
         setError("No benchmark results found");
-      }
 
       if (!override && selectedFamily && selectedLevel) {
         saveRole({
@@ -276,18 +239,14 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = (
-    e: FormEvent<HTMLFormElement>
-  ) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     fetchBenchmarks();
   };
 
   const results = useMemo<BenchmarkResult[]>(() => {
     const s =
-      typeof activeSalary === "number"
-        ? activeSalary
-        : 0;
+      typeof activeSalary === "number" ? activeSalary : 0;
 
     return rows.map((row) => ({
       ...row,
@@ -295,15 +254,9 @@ export default function Home() {
         typeof activeSalary === "number"
           ? s - row.p50
           : null,
-
       percentile:
         typeof activeSalary === "number"
-          ? estimatePercentile(
-              s,
-              row.p25,
-              row.p50,
-              row.p75
-            )
+          ? estimatePercentile(s, row.p25, row.p50, row.p75)
           : null,
     }));
   }, [rows, activeSalary]);
@@ -311,9 +264,10 @@ export default function Home() {
   const availableSubFamilies =
     SUB_FAMILY_OPTIONS[family] || [];
 
+  /* ================= RENDER ================= */
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
-      {/* HEADER */}
       <section className="border-b bg-white">
         <div className="mx-auto max-w-7xl px-6 py-8">
           <Badge className="mb-3 bg-emerald-100 text-emerald-900">
@@ -330,23 +284,17 @@ export default function Home() {
         </div>
       </section>
 
-      {/* BODY */}
       <section className="mx-auto grid max-w-7xl gap-6 px-6 py-6 lg:grid-cols-[380px_1fr]">
-        {/* LEFT */}
+        {/* LEFT SIDE (UNCHANGED) */}
         <aside className="space-y-4">
-          {/* SEARCH */}
           <Card>
             <h2 className="mb-4 text-lg font-semibold">
               Search
             </h2>
 
-            <form
-              onSubmit={handleSubmit}
-              className="space-y-4"
-            >
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <Label>Job Title</Label>
-
                 <Input
                   value={job_title}
                   onChange={(e) =>
@@ -357,86 +305,55 @@ export default function Home() {
 
               <div>
                 <Label>Family</Label>
-
                 <select
                   value={family}
                   onChange={(e) => {
                     setFamily(e.target.value);
                     setSubFamily("");
                   }}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                 >
-                  <option value="">
-                    Select family
-                  </option>
-
-                  {FAMILY_OPTIONS.map((option) => (
-                    <option
-                      key={option}
-                      value={option}
-                    >
-                      {option}
-                    </option>
+                  <option value="">Select family</option>
+                  {FAMILY_OPTIONS.map((f) => (
+                    <option key={f}>{f}</option>
                   ))}
                 </select>
               </div>
 
-              {/* SUB FAMILY */}
               <div>
                 <Label>Sub Family</Label>
-
                 <select
                   value={sub_family}
                   onChange={(e) =>
                     setSubFamily(e.target.value)
                   }
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-md border px-3 py-2 text-sm"
                 >
-                  <option value="">
-                    All sub families
-                  </option>
-
-                  {availableSubFamilies.map(
-                    (option) => (
-                      <option
-                        key={option}
-                        value={option}
-                      >
-                        {option}
-                      </option>
-                    )
-                  )}
+                  <option value="">All</option>
+                  {availableSubFamilies.map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
                 </select>
               </div>
 
               <div>
                 <Label>Level</Label>
-
                 <select
                   value={level}
                   onChange={(e) =>
                     setLevel(e.target.value)
                   }
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="w-full rounded-md border px-3 py-2 text-sm"
                 >
-                  <option value="">
-                    Select level
-                  </option>
-
-                  {LEVEL_OPTIONS.map((option) => (
-                    <option
-                      key={option}
-                      value={option}
-                    >
-                      {option}
-                    </option>
+                  <option value="">Select level</option>
+                  {LEVEL_OPTIONS.map((l) => (
+                    <option key={l}>{l}</option>
                   ))}
                 </select>
               </div>
 
               <div>
                 <Label>Salary</Label>
-
                 <Input
                   type="number"
                   value={salary}
@@ -450,66 +367,15 @@ export default function Home() {
                 />
               </div>
 
-              <Button
-                type="submit"
-                className="w-full"
-              >
+              <Button className="w-full">
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Search className="h-4 w-4" />
                 )}
-
                 Search
               </Button>
             </form>
-          </Card>
-
-          {/* RECENT SEARCHES */}
-          <Card>
-            <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
-              <Clock3 className="h-4 w-4" />
-              Recent Searches
-            </h2>
-
-            {recentRoles.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No recent searches
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {recentRoles.map((r) => (
-                  <button
-                    key={r.timestamp}
-                    onClick={() =>
-                      fetchBenchmarks(r)
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:bg-slate-100"
-                  >
-                    <div className="font-medium text-slate-900">
-                      {r.job_title || "Untitled"}
-                    </div>
-
-                    <div className="mt-1 text-sm text-slate-500">
-                      {r.family}
-                      {r.sub_family
-                        ? ` • ${r.sub_family}`
-                        : ""}
-                      {" • "}
-                      {r.level}
-                    </div>
-
-                    <div className="mt-1 text-sm font-medium text-emerald-700">
-                      {money(
-                        typeof r.salary === "number"
-                          ? r.salary
-                          : null
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
           </Card>
         </aside>
 
@@ -521,181 +387,86 @@ export default function Home() {
               Results
             </h2>
 
-            {loading && (
-              <div className="mt-6 flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading benchmark data...
-              </div>
-            )}
+            <div className="mt-6 space-y-6">
+              {results.map((row, idx) => {
+                const width = 300;
+                const height = 80;
 
-            {!loading &&
-              searched &&
-              results.length === 0 && (
-                <p className="mt-6 text-sm text-slate-500">
-                  No results found
-                </p>
-              )}
+                const userX =
+                  typeof activeSalary === "number"
+                    ? normalizePosition(
+                        activeSalary,
+                        row.p25,
+                        row.p50,
+                        row.p75
+                      ) * width
+                    : null;
 
-            {error && (
-              <p className="mt-4 text-sm text-rose-600">
-                {error}
-              </p>
-            )}
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-2xl border p-5"
+                  >
+                    <h3 className="font-semibold">
+                      {row.family} {row.level}
+                    </h3>
 
-            <div className="mt-6 space-y-4">
-              {results.map((row, index) => (
-                <div
-                  key={index}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-                >
-                  {/* HEADER */}
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">
-                        {row.family}
-                      </h3>
+                    {/* BELL CURVE */}
+                    <svg
+                      width="100%"
+                      height={height}
+                      viewBox={`0 0 ${width} ${height}`}
+                      className="mt-6"
+                    >
+                      <defs>
+                        <linearGradient id="curveFade">
+                          <stop
+                            offset="0%"
+                            stopColor="#a7f3d0"
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor="#10b981"
+                          />
+                        </linearGradient>
+                      </defs>
 
-                      <p className="text-sm text-slate-500">
-                        {row.sub_family
-                          ? `${row.sub_family} • `
-                          : ""}
-                        {row.level}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl bg-emerald-50 px-4 py-2 text-right">
-                      <div className="text-xs uppercase tracking-wide text-emerald-700">
-                        Your Salary
-                      </div>
-
-                      <div className="text-xl font-bold text-emerald-900">
-                        {money(
-                          typeof activeSalary === "number"
-                            ? activeSalary
-                            : null
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* BENCHMARK BAR */}
-                  <div className="relative mt-6">
-                    <div className="relative h-2 overflow-hidden rounded-full bg-slate-200">
-                      <div className="absolute left-0 top-0 h-full w-1/2 bg-emerald-200" />
-
-                      <div className="absolute right-0 top-0 h-full w-1/2 bg-emerald-400" />
-                    </div>
-
-                    {/* P50 DOT */}
-                    <div
-                      className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-slate-900 shadow"
-                      style={{ left: "50%" }}
-                    />
-
-                    {/* USER DOT */}
-                    {typeof activeSalary ===
-                      "number" && (
-                      <div
-                        className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white bg-emerald-500 shadow-lg"
-                        style={{
-                          left: `${getMarkerPosition(
-                            activeSalary,
-                            row.p25,
-                            row.p50,
-                            row.p75
-                          )}%`,
-                        }}
+                      <path
+                        d={getBellCurvePath(width, height)}
+                        fill="url(#curveFade)"
+                        opacity="0.6"
                       />
-                    )}
-                  </div>
 
-                  {/* LABELS UNDER BAR */}
-                  <div className="mt-2 flex justify-between text-xs text-slate-500">
-                    <div>
-                      P25 • {money(row.p25)}
-                    </div>
+                      {/* Median Line */}
+                      <line
+                        x1={width / 2}
+                        x2={width / 2}
+                        y1={0}
+                        y2={height}
+                        stroke="#111"
+                      />
 
-                    <div>
-                      P50 • {money(row.p50)}
-                    </div>
+                      {/* User marker */}
+                      {userX !== null && (
+                        <circle
+                          cx={userX}
+                          cy={height * 0.35}
+                          r="6"
+                          fill="#10b981"
+                          stroke="white"
+                          strokeWidth="2"
+                        />
+                      )}
+                    </svg>
 
-                    <div>
-                      P75 • {money(row.p75)}
-                    </div>
-                  </div>
-
-                  {/* BENCHMARK CARDS */}
-                  <div className="mt-6 grid grid-cols-3 gap-4">
-                    <div className="rounded-xl bg-slate-50 p-3 text-center">
-                      <div className="text-xs uppercase tracking-wide text-slate-500">
-                        P25
-                      </div>
-
-                      <div className="mt-1 text-lg font-semibold">
-                        {money(row.p25)}
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-slate-100 p-3 text-center ring-1 ring-slate-200">
-                      <div className="text-xs uppercase tracking-wide text-slate-500">
-                        P50
-                      </div>
-
-                      <div className="mt-1 text-lg font-bold">
-                        {money(row.p50)}
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-slate-50 p-3 text-center">
-                      <div className="text-xs uppercase tracking-wide text-slate-500">
-                        P75
-                      </div>
-
-                      <div className="mt-1 text-lg font-semibold">
-                        {money(row.p75)}
-                      </div>
+                    <div className="mt-3 text-sm text-slate-500 flex justify-between">
+                      <span>P25 {money(row.p25)}</span>
+                      <span>P50 {money(row.p50)}</span>
+                      <span>P75 {money(row.p75)}</span>
                     </div>
                   </div>
-
-                  {/* FOOTER */}
-                  <div className="mt-5 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                    <div>
-                      <div className="text-xs uppercase tracking-wide text-slate-500">
-                        Market Position
-                      </div>
-
-                      <div className="mt-1 text-sm font-semibold text-slate-900">
-                        {row.percentile
-                          ? `~${Math.round(
-                              row.percentile
-                            )}th percentile`
-                          : "Not available"}
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-xs uppercase tracking-wide text-slate-500">
-                        vs Median
-                      </div>
-
-                      <div
-                        className={`mt-1 text-sm font-semibold ${
-                          (row.diffToMedian ?? 0) >= 0
-                            ? "text-emerald-600"
-                            : "text-rose-600"
-                        }`}
-                      >
-                        {(row.diffToMedian ?? 0) >= 0
-                          ? "+"
-                          : ""}
-                        {money(
-                          row.diffToMedian ?? 0
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         </section>
