@@ -1301,6 +1301,9 @@ video {
 .fill-current {
   fill: currentColor;
 }
+.fill-slate-700 {
+  fill: #334155;
+}
 .p-0 {
   padding: 0px;
 }
