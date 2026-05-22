@@ -35,20 +35,6 @@ type BenchmarkRow = {
   p75: number;
 };
 
-type RoleQuery = {
-  job_title: string;
-  family: string;
-  sub_family?: string;
-  level: string;
-  salary: number | "";
-  timestamp: number;
-};
-
-type BenchmarkResult = BenchmarkRow & {
-  diffToMedian: number | null;
-  percentile: number | null;
-};
-
 /* ================= CONSTANTS ================= */
 
 const currency = new Intl.NumberFormat("en-GB", {
@@ -56,8 +42,6 @@ const currency = new Intl.NumberFormat("en-GB", {
   currency: "GBP",
   maximumFractionDigits: 0,
 });
-
-const recentRolesKey = "recentRoles";
 
 const FAMILY_OPTIONS = ["Finance", "HR", "Engineering", "Sales"];
 
@@ -70,25 +54,13 @@ const SUB_FAMILY_OPTIONS: Record<string, string[]> = {
 
 const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4"];
 
+const recentRolesKey = "recentRoles";
+
 /* ================= HELPERS ================= */
 
 function money(value: number | null | undefined) {
   if (typeof value !== "number") return "N/A";
   return currency.format(value);
-}
-
-function estimatePercentile(
-  salary: number,
-  p25: number,
-  p50: number,
-  p75: number
-) {
-  if (salary <= p25) return 25 * (salary / p25);
-  if (salary <= p50)
-    return 25 + 25 * ((salary - p25) / (p50 - p25 || 1));
-  if (salary <= p75)
-    return 50 + 25 * ((salary - p50) / (p75 - p50 || 1));
-  return 75 + 25 * ((salary - p75) / p75);
 }
 
 function normalizePosition(
@@ -135,71 +107,55 @@ export default function Home() {
   const [salary, setSalary] = useState<number | "">("");
 
   const [rows, setRows] = useState<BenchmarkRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [searched, setSearched] = useState(false);
-
-  const [recentRoles, setRecentRoles] = useState<RoleQuery[]>([]);
+  const [recentRoles, setRecentRoles] = useState<any[]>([]);
   const [activeSalary, setActiveSalary] = useState<number | "">("");
+
+  const [loading, setLoading] = useState(false);
+  const availableSubFamilies =
+    SUB_FAMILY_OPTIONS[family] || [];
 
   /* ===== LOAD RECENT ===== */
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(recentRolesKey);
-      if (stored) setRecentRoles(JSON.parse(stored));
-    } catch {
-      localStorage.removeItem(recentRolesKey);
-    }
+    const stored = localStorage.getItem(recentRolesKey);
+    if (stored) setRecentRoles(JSON.parse(stored));
   }, []);
 
-  /* ===== SAVE RECENT ===== */
-  const saveRole = (role: RoleQuery) => {
-    const updated = [
-      role,
-      ...recentRoles.filter(
-        (r) =>
-          `${r.family}-${r.sub_family}-${r.level}-${r.salary}` !==
-          `${role.family}-${role.sub_family}-${role.level}-${role.salary}`
-      ),
-    ].slice(0, 3);
-
+  const saveRole = (role: any) => {
+    const updated = [role, ...recentRoles].slice(0, 3);
     setRecentRoles(updated);
-    localStorage.setItem(recentRolesKey, JSON.stringify(updated));
+    localStorage.setItem(
+      recentRolesKey,
+      JSON.stringify(updated)
+    );
   };
 
-  /* ===== FETCH ===== */
-  const fetchBenchmarks = async (override?: RoleQuery) => {
-    const selectedFamily = (override?.family ?? family).trim();
+  /* ===== FETCH MULTI LEVEL ===== */
+
+  const fetchBenchmarks = async (override?: any) => {
+    const selectedFamily = override?.family ?? family;
     const selectedSubFamily =
-      (override?.sub_family ?? sub_family ?? "").trim();
-    const selectedLevel = (override?.level ?? level).trim();
+      override?.sub_family ?? sub_family;
+    const selectedLevel = override?.level ?? level;
     const selectedSalary = override?.salary ?? salary;
 
     setActiveSalary(selectedSalary);
     setLoading(true);
-    setError("");
-    setSearched(true);
 
     try {
       let query = supabase
         .from("market_benchmarks")
-        .select("id,family,sub_family,level,p25,p50,p75");
+        .select("*");
 
-      if (selectedFamily) query = query.eq("family", selectedFamily);
+      if (selectedFamily)
+        query = query.eq("family", selectedFamily);
+
       if (selectedSubFamily)
         query = query.eq("sub_family", selectedSubFamily);
-      if (selectedLevel) query = query.eq("level", selectedLevel);
 
-      const { data, error } = await query.limit(1);
+      // ✅ REMOVE level filter → get ALL levels
+      const { data } = await query;
 
-      if (error) {
-        setError(error.message);
-        setRows([]);
-        return;
-      }
-
-      const safeData = data ?? [];
-      setRows(safeData);
+      setRows(data || []);
 
       if (!override && selectedFamily && selectedLevel) {
         saveRole({
@@ -211,13 +167,6 @@ export default function Home() {
           timestamp: Date.now(),
         });
       }
-
-      if (safeData.length === 0) {
-        setError("No benchmark results found");
-      }
-    } catch {
-      setError("Unexpected error loading data");
-      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -228,124 +177,81 @@ export default function Home() {
     fetchBenchmarks();
   };
 
-  const results = useMemo<BenchmarkResult[]>(() => {
-    const s =
-      typeof activeSalary === "number" ? activeSalary : 0;
-
-    return rows.map((row) => ({
-      ...row,
-      diffToMedian:
-        typeof activeSalary === "number"
-          ? s - row.p50
-          : null,
-      percentile:
-        typeof activeSalary === "number"
-          ? estimatePercentile(
-              s,
-              row.p25,
-              row.p50,
-              row.p75
-            )
-          : null,
-    }));
-  }, [rows, activeSalary]);
-
-  const availableSubFamilies =
-    SUB_FAMILY_OPTIONS[family] || [];
-
   /* ================= UI ================= */
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-950">
-      <section className="mx-auto grid max-w-7xl gap-6 px-6 py-6 lg:grid-cols-[380px_1fr]">
+    <main className="min-h-screen bg-slate-50 p-6">
+      <div className="grid max-w-7xl mx-auto gap-6 lg:grid-cols-[380px_1fr]">
 
-        {/* LEFT PANEL */}
+        {/* LEFT */}
         <aside className="space-y-4">
 
-          {/* SEARCH */}
           <Card>
             <form onSubmit={handleSubmit} className="space-y-4">
 
-              <div>
-                <Label>Job Title</Label>
-                <Input
-                  value={job_title}
-                  onChange={(e) =>
-                    setJobTitle(e.target.value)
-                  }
-                />
-              </div>
+              <Input
+                placeholder="Job title"
+                value={job_title}
+                onChange={(e) =>
+                  setJobTitle(e.target.value)
+                }
+              />
 
-              <div>
-                <Label>Family</Label>
-                <select
-                  value={family}
-                  onChange={(e) => {
-                    setFamily(e.target.value);
-                    setSubFamily("");
-                  }}
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="">Select family</option>
-                  {FAMILY_OPTIONS.map((f) => (
-                    <option key={f}>{f}</option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={family}
+                onChange={(e) => {
+                  setFamily(e.target.value);
+                  setSubFamily("");
+                }}
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Family</option>
+                {FAMILY_OPTIONS.map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </select>
 
-              <div>
-                <Label>Sub Family</Label>
-                <select
-                  value={sub_family}
-                  onChange={(e) =>
-                    setSubFamily(e.target.value)
-                  }
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="">All sub families</option>
-                  {availableSubFamilies.map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={sub_family}
+                onChange={(e) =>
+                  setSubFamily(e.target.value)
+                }
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Sub-family</option>
+                {availableSubFamilies.map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
 
-              <div>
-                <Label>Level</Label>
-                <select
-                  value={level}
-                  onChange={(e) =>
-                    setLevel(e.target.value)
-                  }
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="">Select level</option>
-                  {LEVEL_OPTIONS.map((l) => (
-                    <option key={l}>{l}</option>
-                  ))}
-                </select>
-              </div>
+              <select
+                value={level}
+                onChange={(e) =>
+                  setLevel(e.target.value)
+                }
+                className="w-full border rounded px-3 py-2"
+              >
+                <option value="">Level</option>
+                {LEVEL_OPTIONS.map((l) => (
+                  <option key={l}>{l}</option>
+                ))}
+              </select>
 
-              <div>
-                <Label>Salary</Label>
-                <Input
-                  type="number"
-                  value={salary}
-                  onChange={(e) =>
-                    setSalary(
-                      e.target.value
-                        ? Number(e.target.value)
-                        : ""
-                    )
-                  }
-                />
-              </div>
+              <Input
+                type="number"
+                placeholder="Salary"
+                value={salary}
+                onChange={(e) =>
+                  setSalary(
+                    e.target.value
+                      ? Number(e.target.value)
+                      : ""
+                  )
+                }
+              />
 
               <Button className="w-full">
-                {loading ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Search />
-                )}
+                {loading ? <Loader2 className="animate-spin" /> : <Search />}
                 Search
               </Button>
             </form>
@@ -353,60 +259,43 @@ export default function Home() {
 
           {/* RECENT */}
           <Card>
-            <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <h2 className="flex gap-2 items-center font-semibold">
               <Clock3 className="h-4 w-4" />
-              Recent Searches
+              Recent
             </h2>
 
-            {recentRoles.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                No recent searches
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {recentRoles.map((r) => (
-                  <button
-                    key={r.timestamp}
-                    onClick={() => fetchBenchmarks(r)}
-                    className="w-full rounded-xl border p-3 text-left hover:bg-slate-100"
-                  >
-                    <div className="font-medium">
-                      {r.job_title || "Untitled"}
-                    </div>
-                    <div className="text-sm text-slate-500">
-                      {r.family}
-                      {r.sub_family ? ` • ${r.sub_family}` : ""}
-                      {" • "}
-                      {r.level}
-                    </div>
-                    <div className="text-sm text-emerald-700 font-medium">
-                      {money(
-                        typeof r.salary === "number"
-                          ? r.salary
-                          : null
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+            {recentRoles.map((r: any) => (
+              <button
+                key={r.timestamp}
+                onClick={() => fetchBenchmarks(r)}
+                className="w-full text-left p-3 border rounded mt-2 hover:bg-slate-100"
+              >
+                <div>{r.job_title || "Untitled"}</div>
+                <div className="text-sm text-slate-500">
+                  {r.family} • {r.level}
+                </div>
+                <div className="text-emerald-600 text-sm">
+                  {money(r.salary)}
+                </div>
+              </button>
+            ))}
           </Card>
         </aside>
 
         {/* RIGHT */}
         <section>
           <Card>
-            <h2 className="flex items-center gap-2 text-xl font-semibold">
-              <BarChart3 />
-              Results
+            <h2 className="flex gap-2 items-center text-xl font-semibold">
+              <BarChart3 /> Multi-Level Comparison
             </h2>
 
-            <div className="mt-6 space-y-6">
-              {results.map((row, idx) => {
-                const width = 320;
-                const height = 90;
+            <div className="space-y-6 mt-6">
 
-                const userX =
+              {rows.map((row) => {
+                const width = 320;
+                const height = 80;
+
+                const position =
                   typeof activeSalary === "number"
                     ? normalizePosition(
                         activeSalary,
@@ -417,29 +306,26 @@ export default function Home() {
                     : null;
 
                 return (
-                  <div key={idx} className="border p-5 rounded-xl">
+                  <div key={row.level}>
 
-                    {/* ✅ CONTEXT HEADER ADDED */}
-                    <div className="mb-3">
-                      <div className="font-semibold text-slate-900">
-                        {row.family}
-                      </div>
-                      <div className="text-sm text-slate-500">
-                        {row.sub_family
-                          ? `${row.sub_family} • `
-                          : ""}
+                    {/* LEVEL LABEL */}
+                    <div className="flex justify-between mb-1">
+                      <div className="font-medium">
                         {row.level}
+                      </div>
+
+                      <div className="text-sm text-slate-500">
+                        {row.family} • {row.sub_family}
                       </div>
                     </div>
 
-                    {/* BELL CURVE */}
                     <svg
                       viewBox={`0 0 ${width} ${height}`}
-                      className="w-full mt-4"
+                      className="w-full"
                     >
                       <path
                         d={getBellCurvePath(width, height)}
-                        fill="#10b98133"
+                        fill="#10b98122"
                       />
 
                       <line
@@ -450,18 +336,16 @@ export default function Home() {
                         stroke="#111"
                       />
 
-                      {userX !== null && (
+                      {position && (
                         <>
                           <circle
-                            cx={userX}
-                            cy={height * 0.35}
-                            r="6"
+                            cx={position}
+                            cy={height * 0.4}
+                            r="5"
                             fill="#10b981"
-                            stroke="white"
-                            strokeWidth="2"
                           />
                           <text
-                            x={userX}
+                            x={position}
                             y={height * 0.2}
                             textAnchor="middle"
                             className="text-xs fill-slate-700"
@@ -472,7 +356,7 @@ export default function Home() {
                       )}
                     </svg>
 
-                    <div className="flex justify-between text-sm text-slate-500 mt-2">
+                    <div className="flex justify-between text-xs text-slate-500 mt-1">
                       <span>P25 {money(row.p25)}</span>
                       <span>P50 {money(row.p50)}</span>
                       <span>P75 {money(row.p75)}</span>
@@ -483,7 +367,7 @@ export default function Home() {
             </div>
           </Card>
         </section>
-      </section>
+      </div>
     </main>
   );
 }
