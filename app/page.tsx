@@ -59,28 +59,10 @@ const currency = new Intl.NumberFormat("en-GB", {
 
 const recentRolesKey = "recentRoles";
 
-const FAMILY_OPTIONS = [
-  "Finance",
-  "HR",
-  "Engineering",
-  "Sales",
-];
-
-const SUB_FAMILY_OPTIONS: Record<string, string[]> = {
-  Engineering: ["Software", "Data", "Infrastructure", "Security"],
-  Finance: ["FP&A", "Accounting", "Treasury", "Tax"],
-  HR: ["Talent Acquisition", "People Operations", "Reward"],
-  Sales: ["Enterprise", "SMB", "Partnerships"],
-};
-
-const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4"];
-
 /* ================= HELPERS ================= */
 
 function money(value: number | null | undefined) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return "N/A";
-  }
+  if (typeof value !== "number") return "N/A";
   return currency.format(value);
 }
 
@@ -90,18 +72,15 @@ function estimatePercentile(
   p50: number,
   p75: number
 ) {
-  if (!p25 || !p50 || !p75) return null;
-
-  if (salary <= p25) return Math.max(0, 25 * (salary / p25));
+  if (salary <= p25) return 25 * (salary / p25);
   if (salary <= p50)
-    return 25 + 25 * ((salary - p25) / Math.max(1, p50 - p25));
+    return 25 + 25 * ((salary - p25) / (p50 - p25 || 1));
   if (salary <= p75)
-    return 50 + 25 * ((salary - p50) / Math.max(1, p75 - p50));
-
-  return Math.min(100, 75 + 25 * ((salary - p75) / p75));
+    return 50 + 25 * ((salary - p50) / (p75 - p50 || 1));
+  return 75 + 25 * ((salary - p75) / p75);
 }
 
-/* ===== NEW: Normalize value for curve ===== */
+/* Normalize to 0 → 1 */
 
 function normalizePosition(
   value: number,
@@ -111,13 +90,13 @@ function normalizePosition(
 ) {
   if (value <= p25) return 0.1;
   if (value <= p50)
-    return 0.1 + 0.4 * ((value - p25) / Math.max(1, p50 - p25));
+    return 0.1 + 0.4 * ((value - p25) / (p50 - p25 || 1));
   if (value <= p75)
-    return 0.5 + 0.4 * ((value - p50) / Math.max(1, p75 - p50));
+    return 0.5 + 0.4 * ((value - p50) / (p75 - p50 || 1));
   return 0.9;
 }
 
-/* ===== NEW: Bell curve generator ===== */
+/* Bell curve path */
 
 function getBellCurvePath(width: number, height: number) {
   const points = 40;
@@ -125,23 +104,17 @@ function getBellCurvePath(width: number, height: number) {
 
   for (let i = 0; i <= points; i++) {
     const t = i / points;
-
-    // Gaussian-like curve centered at 0.5
     const x = t * width;
+
     const y =
       height *
-      (1 -
-        Math.exp(-Math.pow((t - 0.5) / 0.2, 2)));
+      (1 - Math.exp(-Math.pow((t - 0.5) / 0.2, 2)));
 
-    if (i === 0) {
-      path += `M ${x} ${height}`;
-    }
-
+    if (i === 0) path += `M ${x} ${height}`;
     path += ` L ${x} ${y}`;
   }
 
   path += ` L ${width} ${height} Z`;
-
   return path;
 }
 
@@ -162,6 +135,7 @@ export default function Home() {
   const [recentRoles, setRecentRoles] = useState<RoleQuery[]>([]);
   const [activeSalary, setActiveSalary] = useState<number | "">("");
 
+  /* ===== LOAD RECENT ===== */
   useEffect(() => {
     try {
       const stored = localStorage.getItem(recentRolesKey);
@@ -171,6 +145,7 @@ export default function Home() {
     }
   }, []);
 
+  /* ===== SAVE RECENT ===== */
   const saveRole = (role: RoleQuery) => {
     const updated = [
       role,
@@ -185,6 +160,7 @@ export default function Home() {
     localStorage.setItem(recentRolesKey, JSON.stringify(updated));
   };
 
+  /* ===== FETCH ===== */
   const fetchBenchmarks = async (override?: RoleQuery) => {
     const selectedFamily = (override?.family ?? family).trim();
     const selectedSubFamily =
@@ -218,9 +194,6 @@ export default function Home() {
       const safeData = data ?? [];
       setRows(safeData);
 
-      if (safeData.length === 0)
-        setError("No benchmark results found");
-
       if (!override && selectedFamily && selectedLevel) {
         saveRole({
           job_title,
@@ -230,6 +203,10 @@ export default function Home() {
           salary: selectedSalary,
           timestamp: Date.now(),
         });
+      }
+
+      if (safeData.length === 0) {
+        setError("No benchmark results found");
       }
     } catch {
       setError("Unexpected error loading data");
@@ -244,6 +221,8 @@ export default function Home() {
     fetchBenchmarks();
   };
 
+  /* ===== COMPUTED ===== */
+
   const results = useMemo<BenchmarkResult[]>(() => {
     const s =
       typeof activeSalary === "number" ? activeSalary : 0;
@@ -256,141 +235,129 @@ export default function Home() {
           : null,
       percentile:
         typeof activeSalary === "number"
-          ? estimatePercentile(s, row.p25, row.p50, row.p75)
+          ? estimatePercentile(
+              s,
+              row.p25,
+              row.p50,
+              row.p75
+            )
           : null,
     }));
   }, [rows, activeSalary]);
 
-  const availableSubFamilies =
-    SUB_FAMILY_OPTIONS[family] || [];
-
-  /* ================= RENDER ================= */
+  /* ================= UI ================= */
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
-      <section className="border-b bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
-          <Badge className="mb-3 bg-emerald-100 text-emerald-900">
-            Market Intelligence
-          </Badge>
-
-          <h1 className="text-3xl font-semibold">
-            Market Benchmark Tool
-          </h1>
-
-          <p className="mt-2 text-sm text-slate-600">
-            Compare salaries against market benchmarks.
-          </p>
-        </div>
-      </section>
-
       <section className="mx-auto grid max-w-7xl gap-6 px-6 py-6 lg:grid-cols-[380px_1fr]">
-        {/* LEFT SIDE (UNCHANGED) */}
+
+        {/* LEFT PANEL */}
         <aside className="space-y-4">
+
+          {/* SEARCH */}
           <Card>
-            <h2 className="mb-4 text-lg font-semibold">
-              Search
-            </h2>
-
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label>Job Title</Label>
-                <Input
-                  value={job_title}
-                  onChange={(e) =>
-                    setJobTitle(e.target.value)
-                  }
-                />
-              </div>
 
-              <div>
-                <Label>Family</Label>
-                <select
-                  value={family}
-                  onChange={(e) => {
-                    setFamily(e.target.value);
-                    setSubFamily("");
-                  }}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="">Select family</option>
-                  {FAMILY_OPTIONS.map((f) => (
-                    <option key={f}>{f}</option>
-                  ))}
-                </select>
-              </div>
+              <Input
+                placeholder="Job title"
+                value={job_title}
+                onChange={(e) =>
+                  setJobTitle(e.target.value)
+                }
+              />
 
-              <div>
-                <Label>Sub Family</Label>
-                <select
-                  value={sub_family}
-                  onChange={(e) =>
-                    setSubFamily(e.target.value)
-                  }
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="">All</option>
-                  {availableSubFamilies.map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
+              <Input
+                placeholder="Family"
+                value={family}
+                onChange={(e) =>
+                  setFamily(e.target.value)
+                }
+              />
 
-              <div>
-                <Label>Level</Label>
-                <select
-                  value={level}
-                  onChange={(e) =>
-                    setLevel(e.target.value)
-                  }
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                >
-                  <option value="">Select level</option>
-                  {LEVEL_OPTIONS.map((l) => (
-                    <option key={l}>{l}</option>
-                  ))}
-                </select>
-              </div>
+              <Input
+                placeholder="Level"
+                value={level}
+                onChange={(e) =>
+                  setLevel(e.target.value)
+                }
+              />
 
-              <div>
-                <Label>Salary</Label>
-                <Input
-                  type="number"
-                  value={salary}
-                  onChange={(e) =>
-                    setSalary(
-                      e.target.value
-                        ? Number(e.target.value)
-                        : ""
-                    )
-                  }
-                />
-              </div>
+              <Input
+                type="number"
+                placeholder="Salary"
+                value={salary}
+                onChange={(e) =>
+                  setSalary(
+                    e.target.value
+                      ? Number(e.target.value)
+                      : ""
+                  )
+                }
+              />
 
               <Button className="w-full">
                 {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="animate-spin" />
                 ) : (
-                  <Search className="h-4 w-4" />
+                  <Search />
                 )}
                 Search
               </Button>
             </form>
+          </Card>
+
+          {/* ✅ RECENT SEARCHES FIXED */}
+          <Card>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <Clock3 className="h-4 w-4" />
+              Recent Searches
+            </h2>
+
+            {recentRoles.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No recent searches
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentRoles.map((r) => (
+                  <button
+                    key={r.timestamp}
+                    onClick={() => fetchBenchmarks(r)}
+                    className="w-full rounded-xl border p-3 text-left hover:bg-slate-100"
+                  >
+                    <div className="font-medium">
+                      {r.job_title || "Untitled"}
+                    </div>
+
+                    <div className="text-sm text-slate-500">
+                      {r.family} • {r.level}
+                    </div>
+
+                    <div className="text-sm font-medium text-emerald-700">
+                      {money(
+                        typeof r.salary === "number"
+                          ? r.salary
+                          : null
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </Card>
         </aside>
 
         {/* RIGHT */}
         <section>
           <Card>
-            <h2 className="flex items-center gap-2 text-xl font-semibold">
-              <BarChart3 className="h-5 w-5" />
-              Results
+            <h2 className="text-xl font-semibold flex gap-2">
+              <BarChart3 /> Results
             </h2>
 
             <div className="mt-6 space-y-6">
               {results.map((row, idx) => {
-                const width = 300;
-                const height = 80;
+                const width = 320;
+                const height = 90;
 
                 const userX =
                   typeof activeSalary === "number"
@@ -403,41 +370,19 @@ export default function Home() {
                     : null;
 
                 return (
-                  <div
-                    key={idx}
-                    className="rounded-2xl border p-5"
-                  >
-                    <h3 className="font-semibold">
-                      {row.family} {row.level}
-                    </h3>
+                  <div key={idx} className="border p-5 rounded-xl">
 
                     {/* BELL CURVE */}
                     <svg
-                      width="100%"
-                      height={height}
                       viewBox={`0 0 ${width} ${height}`}
-                      className="mt-6"
+                      className="w-full mt-6"
                     >
-                      <defs>
-                        <linearGradient id="curveFade">
-                          <stop
-                            offset="0%"
-                            stopColor="#a7f3d0"
-                          />
-                          <stop
-                            offset="100%"
-                            stopColor="#10b981"
-                          />
-                        </linearGradient>
-                      </defs>
-
                       <path
                         d={getBellCurvePath(width, height)}
-                        fill="url(#curveFade)"
-                        opacity="0.6"
+                        fill="#10b98133"
                       />
 
-                      {/* Median Line */}
+                      {/* MEDIAN LINE */}
                       <line
                         x1={width / 2}
                         x2={width / 2}
@@ -446,20 +391,32 @@ export default function Home() {
                         stroke="#111"
                       />
 
-                      {/* User marker */}
+                      {/* ✅ USER SALARY LABEL + DOT */}
                       {userX !== null && (
-                        <circle
-                          cx={userX}
-                          cy={height * 0.35}
-                          r="6"
-                          fill="#10b981"
-                          stroke="white"
-                          strokeWidth="2"
-                        />
+                        <>
+                          <circle
+                            cx={userX}
+                            cy={height * 0.35}
+                            r="6"
+                            fill="#10b981"
+                            stroke="white"
+                            strokeWidth="2"
+                          />
+
+                          <text
+                            x={userX}
+                            y={height * 0.2}
+                            textAnchor="middle"
+                            className="text-xs fill-slate-700 font-medium"
+                          >
+                            {money(activeSalary as number)}
+                          </text>
+                        </>
                       )}
                     </svg>
 
-                    <div className="mt-3 text-sm text-slate-500 flex justify-between">
+                    {/* LABELS */}
+                    <div className="flex justify-between text-sm text-slate-500 mt-2">
                       <span>P25 {money(row.p25)}</span>
                       <span>P50 {money(row.p50)}</span>
                       <span>P75 {money(row.p75)}</span>
