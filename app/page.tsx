@@ -3,6 +3,7 @@
 import {
   type FormEvent,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -14,10 +15,8 @@ import {
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-
 import Card from "@/components/Card";
 import Button from "@/components/Button";
-
 import { supabase } from "@/lib/supabase";
 
 /* ================= TYPES ================= */
@@ -31,6 +30,8 @@ type BenchmarkRow = {
   p50: number;
   p75: number;
 };
+
+/* ================= CONSTANTS ================= */
 
 const currency = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -104,7 +105,7 @@ export default function Home() {
     );
   };
 
-  /* ===== FETCH ALL LEVELS ===== */
+  /* ===== FETCH ===== */
 
   const fetchBenchmarks = async (override?: any) => {
     const selectedFamily = override?.family ?? family;
@@ -151,13 +152,30 @@ export default function Home() {
     fetchBenchmarks();
   };
 
+  /* ✅ FILTER: selected level + next level */
+
+  const displayRows = useMemo(() => {
+    const sorted = [...rows].sort((a, b) =>
+      LEVEL_OPTIONS.indexOf(a.level) -
+      LEVEL_OPTIONS.indexOf(b.level)
+    );
+
+    const currentIndex = sorted.findIndex(
+      (r) => r.level === level
+    );
+
+    if (currentIndex === -1) return sorted;
+
+    return sorted.slice(currentIndex, currentIndex + 2);
+  }, [rows, level]);
+
   /* ================= UI ================= */
 
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="grid max-w-7xl mx-auto gap-6 lg:grid-cols-[380px_1fr]">
 
-        {/* LEFT PANEL */}
+        {/* LEFT */}
         <aside className="space-y-4">
 
           <Card>
@@ -225,11 +243,7 @@ export default function Home() {
               />
 
               <Button className="w-full">
-                {loading ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Search />
-                )}
+                {loading ? <Loader2 className="animate-spin" /> : <Search />}
                 Search
               </Button>
             </form>
@@ -260,16 +274,16 @@ export default function Home() {
           </Card>
         </aside>
 
-        {/* RIGHT PANEL */}
+        {/* RIGHT */}
         <section>
           <Card>
             <h2 className="flex gap-2 items-center text-xl font-semibold">
-              <BarChart3 /> Multi-Level Comparison
+              <BarChart3 /> Level Comparison
             </h2>
 
             <div className="space-y-6 mt-6">
 
-              {rows.map((row) => {
+              {displayRows.map((row) => {
                 const position =
                   typeof activeSalary === "number"
                     ? getPosition(
@@ -280,38 +294,46 @@ export default function Home() {
                       )
                     : null;
 
+                const isSelected = row.level === level;
+
                 return (
                   <div key={row.level}>
 
-                    {/* LABEL */}
                     <div className="flex justify-between mb-2">
                       <div className="font-medium">
-                        {row.level}
+                        {row.level} {isSelected && "(Selected)"}
                       </div>
                       <div className="text-sm text-slate-500">
                         {row.family} • {row.sub_family}
                       </div>
                     </div>
 
-                    {/* RANGE BAR */}
                     <div className="relative h-3 bg-slate-200 rounded-full">
 
-                      {/* P25–P50 */}
-                      <div className="absolute left-0 w-1/2 h-full bg-emerald-200 rounded-l-full" />
+                      <div
+                        className={`absolute left-0 w-1/2 h-full ${
+                          isSelected
+                            ? "bg-emerald-200"
+                            : "bg-slate-300"
+                        }`}
+                      />
 
-                      {/* P50–P75 */}
-                      <div className="absolute right-0 w-1/2 h-full bg-emerald-400 rounded-r-full" />
+                      <div
+                        className={`absolute right-0 w-1/2 h-full ${
+                          isSelected
+                            ? "bg-emerald-500"
+                            : "bg-slate-500"
+                        }`}
+                      />
 
-                      {/* Median */}
                       <div className="absolute left-1/2 top-1/2 w-1 h-4 bg-black -translate-x-1/2 -translate-y-1/2" />
 
-                      {/* Salary marker */}
                       {position !== null && (
                         <div
                           className="absolute top-1/2 -translate-y-1/2"
                           style={{ left: `${position}%` }}
                         >
-                          <div className="h-4 w-4 bg-emerald-600 rounded-full border-2 border-white shadow" />
+                          <div className="h-4 w-4 bg-black rounded-full border-2 border-white shadow" />
                           <div className="text-xs mt-1 text-center">
                             {money(activeSalary as number)}
                           </div>
@@ -319,7 +341,6 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* LABELS */}
                     <div className="flex justify-between text-xs text-slate-500 mt-2">
                       <span>P25 {money(row.p25)}</span>
                       <span>P50 {money(row.p50)}</span>
@@ -335,3 +356,4 @@ export default function Home() {
     </main>
   );
 }
+``
