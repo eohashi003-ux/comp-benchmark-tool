@@ -59,6 +59,17 @@ const currency = new Intl.NumberFormat("en-GB", {
 
 const recentRolesKey = "recentRoles";
 
+const FAMILY_OPTIONS = ["Finance", "HR", "Engineering", "Sales"];
+
+const SUB_FAMILY_OPTIONS: Record<string, string[]> = {
+  Engineering: ["Software", "Data", "Infrastructure", "Security"],
+  Finance: ["FP&A", "Accounting", "Treasury", "Tax"],
+  HR: ["Talent Acquisition", "People Operations", "Reward"],
+  Sales: ["Enterprise", "SMB", "Partnerships"],
+};
+
+const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4"];
+
 /* ================= HELPERS ================= */
 
 function money(value: number | null | undefined) {
@@ -80,8 +91,6 @@ function estimatePercentile(
   return 75 + 25 * ((salary - p75) / p75);
 }
 
-/* Normalize to 0 → 1 */
-
 function normalizePosition(
   value: number,
   p25: number,
@@ -95,8 +104,6 @@ function normalizePosition(
     return 0.5 + 0.4 * ((value - p50) / (p75 - p50 || 1));
   return 0.9;
 }
-
-/* Bell curve path */
 
 function getBellCurvePath(width: number, height: number) {
   const points = 40;
@@ -221,8 +228,6 @@ export default function Home() {
     fetchBenchmarks();
   };
 
-  /* ===== COMPUTED ===== */
-
   const results = useMemo<BenchmarkResult[]>(() => {
     const s =
       typeof activeSalary === "number" ? activeSalary : 0;
@@ -245,6 +250,9 @@ export default function Home() {
     }));
   }, [rows, activeSalary]);
 
+  const availableSubFamilies =
+    SUB_FAMILY_OPTIONS[family] || [];
+
   /* ================= UI ================= */
 
   return (
@@ -258,42 +266,79 @@ export default function Home() {
           <Card>
             <form onSubmit={handleSubmit} className="space-y-4">
 
-              <Input
-                placeholder="Job title"
-                value={job_title}
-                onChange={(e) =>
-                  setJobTitle(e.target.value)
-                }
-              />
+              <div>
+                <Label>Job Title</Label>
+                <Input
+                  value={job_title}
+                  onChange={(e) =>
+                    setJobTitle(e.target.value)
+                  }
+                />
+              </div>
 
-              <Input
-                placeholder="Family"
-                value={family}
-                onChange={(e) =>
-                  setFamily(e.target.value)
-                }
-              />
+              <div>
+                <Label>Family</Label>
+                <select
+                  value={family}
+                  onChange={(e) => {
+                    setFamily(e.target.value);
+                    setSubFamily("");
+                  }}
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                >
+                  <option value="">Select family</option>
+                  {FAMILY_OPTIONS.map((f) => (
+                    <option key={f}>{f}</option>
+                  ))}
+                </select>
+              </div>
 
-              <Input
-                placeholder="Level"
-                value={level}
-                onChange={(e) =>
-                  setLevel(e.target.value)
-                }
-              />
+              <div>
+                <Label>Sub Family</Label>
+                <select
+                  value={sub_family}
+                  onChange={(e) =>
+                    setSubFamily(e.target.value)
+                  }
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                >
+                  <option value="">All sub families</option>
+                  {availableSubFamilies.map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
 
-              <Input
-                type="number"
-                placeholder="Salary"
-                value={salary}
-                onChange={(e) =>
-                  setSalary(
-                    e.target.value
-                      ? Number(e.target.value)
-                      : ""
-                  )
-                }
-              />
+              <div>
+                <Label>Level</Label>
+                <select
+                  value={level}
+                  onChange={(e) =>
+                    setLevel(e.target.value)
+                  }
+                  className="w-full rounded-md border px-3 py-2 text-sm"
+                >
+                  <option value="">Select level</option>
+                  {LEVEL_OPTIONS.map((l) => (
+                    <option key={l}>{l}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label>Salary</Label>
+                <Input
+                  type="number"
+                  value={salary}
+                  onChange={(e) =>
+                    setSalary(
+                      e.target.value
+                        ? Number(e.target.value)
+                        : ""
+                    )
+                  }
+                />
+              </div>
 
               <Button className="w-full">
                 {loading ? (
@@ -306,7 +351,7 @@ export default function Home() {
             </form>
           </Card>
 
-          {/* ✅ RECENT SEARCHES FIXED */}
+          {/* RECENT */}
           <Card>
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Clock3 className="h-4 w-4" />
@@ -328,12 +373,13 @@ export default function Home() {
                     <div className="font-medium">
                       {r.job_title || "Untitled"}
                     </div>
-
                     <div className="text-sm text-slate-500">
-                      {r.family} • {r.level}
+                      {r.family}
+                      {r.sub_family ? ` • ${r.sub_family}` : ""}
+                      {" • "}
+                      {r.level}
                     </div>
-
-                    <div className="text-sm font-medium text-emerald-700">
+                    <div className="text-sm text-emerald-700 font-medium">
                       {money(
                         typeof r.salary === "number"
                           ? r.salary
@@ -350,8 +396,9 @@ export default function Home() {
         {/* RIGHT */}
         <section>
           <Card>
-            <h2 className="text-xl font-semibold flex gap-2">
-              <BarChart3 /> Results
+            <h2 className="flex items-center gap-2 text-xl font-semibold">
+              <BarChart3 />
+              Results
             </h2>
 
             <div className="mt-6 space-y-6">
@@ -372,17 +419,29 @@ export default function Home() {
                 return (
                   <div key={idx} className="border p-5 rounded-xl">
 
+                    {/* ✅ CONTEXT HEADER ADDED */}
+                    <div className="mb-3">
+                      <div className="font-semibold text-slate-900">
+                        {row.family}
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        {row.sub_family
+                          ? `${row.sub_family} • `
+                          : ""}
+                        {row.level}
+                      </div>
+                    </div>
+
                     {/* BELL CURVE */}
                     <svg
                       viewBox={`0 0 ${width} ${height}`}
-                      className="w-full mt-6"
+                      className="w-full mt-4"
                     >
                       <path
                         d={getBellCurvePath(width, height)}
                         fill="#10b98133"
                       />
 
-                      {/* MEDIAN LINE */}
                       <line
                         x1={width / 2}
                         x2={width / 2}
@@ -391,7 +450,6 @@ export default function Home() {
                         stroke="#111"
                       />
 
-                      {/* ✅ USER SALARY LABEL + DOT */}
                       {userX !== null && (
                         <>
                           <circle
@@ -402,12 +460,11 @@ export default function Home() {
                             stroke="white"
                             strokeWidth="2"
                           />
-
                           <text
                             x={userX}
                             y={height * 0.2}
                             textAnchor="middle"
-                            className="text-xs fill-slate-700 font-medium"
+                            className="text-xs fill-slate-700"
                           >
                             {money(activeSalary as number)}
                           </text>
@@ -415,7 +472,6 @@ export default function Home() {
                       )}
                     </svg>
 
-                    {/* LABELS */}
                     <div className="flex justify-between text-sm text-slate-500 mt-2">
                       <span>P25 {money(row.p25)}</span>
                       <span>P50 {money(row.p50)}</span>
