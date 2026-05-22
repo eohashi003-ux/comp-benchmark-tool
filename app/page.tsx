@@ -114,6 +114,11 @@ export default function Home() {
     const selectedLevel = override?.level ?? level;
     const selectedSalary = override?.salary ?? salary;
 
+    // ✅ IMPORTANT FIX: ensure state is set
+    if (override?.level) setLevel(override.level);
+    if (override?.family) setFamily(override.family);
+    if (override?.sub_family) setSubFamily(override.sub_family);
+
     setActiveSalary(selectedSalary);
     setLoading(true);
 
@@ -152,21 +157,25 @@ export default function Home() {
     fetchBenchmarks();
   };
 
-  /* ✅ FILTER: selected level + next level */
+  /* ✅ FIXED LOGIC */
 
   const displayRows = useMemo(() => {
-    const sorted = [...rows].sort((a, b) =>
-      LEVEL_OPTIONS.indexOf(a.level) -
-      LEVEL_OPTIONS.indexOf(b.level)
-    );
+    if (!level) return [];
 
-    const currentIndex = sorted.findIndex(
+    const currentRow = rows.find(
       (r) => r.level === level
     );
 
-    if (currentIndex === -1) return sorted;
+    const nextLevel =
+      LEVEL_OPTIONS[
+        LEVEL_OPTIONS.indexOf(level) + 1
+      ];
 
-    return sorted.slice(currentIndex, currentIndex + 2);
+    const nextRow = rows.find(
+      (r) => r.level === nextLevel
+    );
+
+    return [currentRow, nextRow].filter(Boolean) as BenchmarkRow[];
   }, [rows, level]);
 
   /* ================= UI ================= */
@@ -356,4 +365,3 @@ export default function Home() {
     </main>
   );
 }
-``
