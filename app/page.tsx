@@ -3,7 +3,6 @@
 import {
   type FormEvent,
   useEffect,
-  useMemo,
   useState,
 } from "react";
 
@@ -14,9 +13,7 @@ import {
   Search,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 import Card from "@/components/Card";
 import Button from "@/components/Button";
@@ -34,8 +31,6 @@ type BenchmarkRow = {
   p50: number;
   p75: number;
 };
-
-/* ================= CONSTANTS ================= */
 
 const currency = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -63,38 +58,18 @@ function money(value: number | null | undefined) {
   return currency.format(value);
 }
 
-function normalizePosition(
+function getPosition(
   value: number,
   p25: number,
   p50: number,
   p75: number
 ) {
-  if (value <= p25) return 0.1;
+  if (value <= p25) return 0;
   if (value <= p50)
-    return 0.1 + 0.4 * ((value - p25) / (p50 - p25 || 1));
+    return ((value - p25) / (p50 - p25 || 1)) * 50;
   if (value <= p75)
-    return 0.5 + 0.4 * ((value - p50) / (p75 - p50 || 1));
-  return 0.9;
-}
-
-function getBellCurvePath(width: number, height: number) {
-  const points = 40;
-  let path = "";
-
-  for (let i = 0; i <= points; i++) {
-    const t = i / points;
-    const x = t * width;
-
-    const y =
-      height *
-      (1 - Math.exp(-Math.pow((t - 0.5) / 0.2, 2)));
-
-    if (i === 0) path += `M ${x} ${height}`;
-    path += ` L ${x} ${y}`;
-  }
-
-  path += ` L ${width} ${height} Z`;
-  return path;
+    return 50 + ((value - p50) / (p75 - p50 || 1)) * 50;
+  return 100;
 }
 
 /* ================= COMPONENT ================= */
@@ -109,8 +84,8 @@ export default function Home() {
   const [rows, setRows] = useState<BenchmarkRow[]>([]);
   const [recentRoles, setRecentRoles] = useState<any[]>([]);
   const [activeSalary, setActiveSalary] = useState<number | "">("");
-
   const [loading, setLoading] = useState(false);
+
   const availableSubFamilies =
     SUB_FAMILY_OPTIONS[family] || [];
 
@@ -129,7 +104,7 @@ export default function Home() {
     );
   };
 
-  /* ===== FETCH MULTI LEVEL ===== */
+  /* ===== FETCH ALL LEVELS ===== */
 
   const fetchBenchmarks = async (override?: any) => {
     const selectedFamily = override?.family ?? family;
@@ -152,7 +127,6 @@ export default function Home() {
       if (selectedSubFamily)
         query = query.eq("sub_family", selectedSubFamily);
 
-      // ✅ REMOVE level filter → get ALL levels
       const { data } = await query;
 
       setRows(data || []);
@@ -183,7 +157,7 @@ export default function Home() {
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="grid max-w-7xl mx-auto gap-6 lg:grid-cols-[380px_1fr]">
 
-        {/* LEFT */}
+        {/* LEFT PANEL */}
         <aside className="space-y-4">
 
           <Card>
@@ -251,7 +225,11 @@ export default function Home() {
               />
 
               <Button className="w-full">
-                {loading ? <Loader2 className="animate-spin" /> : <Search />}
+                {loading ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Search />
+                )}
                 Search
               </Button>
             </form>
@@ -272,7 +250,7 @@ export default function Home() {
               >
                 <div>{r.job_title || "Untitled"}</div>
                 <div className="text-sm text-slate-500">
-                  {r.family} • {r.level}
+                  {r.family} • {r.sub_family} • {r.level}
                 </div>
                 <div className="text-emerald-600 text-sm">
                   {money(r.salary)}
@@ -282,7 +260,7 @@ export default function Home() {
           </Card>
         </aside>
 
-        {/* RIGHT */}
+        {/* RIGHT PANEL */}
         <section>
           <Card>
             <h2 className="flex gap-2 items-center text-xl font-semibold">
@@ -292,71 +270,57 @@ export default function Home() {
             <div className="space-y-6 mt-6">
 
               {rows.map((row) => {
-                const width = 320;
-                const height = 80;
-
                 const position =
                   typeof activeSalary === "number"
-                    ? normalizePosition(
+                    ? getPosition(
                         activeSalary,
                         row.p25,
                         row.p50,
                         row.p75
-                      ) * width
+                      )
                     : null;
 
                 return (
                   <div key={row.level}>
 
-                    {/* LEVEL LABEL */}
-                    <div className="flex justify-between mb-1">
+                    {/* LABEL */}
+                    <div className="flex justify-between mb-2">
                       <div className="font-medium">
                         {row.level}
                       </div>
-
                       <div className="text-sm text-slate-500">
                         {row.family} • {row.sub_family}
                       </div>
                     </div>
 
-                    <svg
-                      viewBox={`0 0 ${width} ${height}`}
-                      className="w-full"
-                    >
-                      <path
-                        d={getBellCurvePath(width, height)}
-                        fill="#10b98122"
-                      />
+                    {/* RANGE BAR */}
+                    <div className="relative h-3 bg-slate-200 rounded-full">
 
-                      <line
-                        x1={width / 2}
-                        x2={width / 2}
-                        y1={0}
-                        y2={height}
-                        stroke="#111"
-                      />
+                      {/* P25–P50 */}
+                      <div className="absolute left-0 w-1/2 h-full bg-emerald-200 rounded-l-full" />
 
-                      {position && (
-                        <>
-                          <circle
-                            cx={position}
-                            cy={height * 0.4}
-                            r="5"
-                            fill="#10b981"
-                          />
-                          <text
-                            x={position}
-                            y={height * 0.2}
-                            textAnchor="middle"
-                            className="text-xs fill-slate-700"
-                          >
+                      {/* P50–P75 */}
+                      <div className="absolute right-0 w-1/2 h-full bg-emerald-400 rounded-r-full" />
+
+                      {/* Median */}
+                      <div className="absolute left-1/2 top-1/2 w-1 h-4 bg-black -translate-x-1/2 -translate-y-1/2" />
+
+                      {/* Salary marker */}
+                      {position !== null && (
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2"
+                          style={{ left: `${position}%` }}
+                        >
+                          <div className="h-4 w-4 bg-emerald-600 rounded-full border-2 border-white shadow" />
+                          <div className="text-xs mt-1 text-center">
                             {money(activeSalary as number)}
-                          </text>
-                        </>
+                          </div>
+                        </div>
                       )}
-                    </svg>
+                    </div>
 
-                    <div className="flex justify-between text-xs text-slate-500 mt-1">
+                    {/* LABELS */}
+                    <div className="flex justify-between text-xs text-slate-500 mt-2">
                       <span>P25 {money(row.p25)}</span>
                       <span>P50 {money(row.p50)}</span>
                       <span>P75 {money(row.p75)}</span>
