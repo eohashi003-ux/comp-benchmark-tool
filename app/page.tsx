@@ -14,12 +14,14 @@ import {
   Search,
 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 import Card from "@/components/Card";
 import Button from "@/components/Button";
-import { supabase } from "@/lib/supabase";
 
-/* ================= TYPES ================= */
+import { supabase } from "@/lib/supabase";
 
 type BenchmarkRow = {
   id?: string | number;
@@ -31,7 +33,19 @@ type BenchmarkRow = {
   p75: number;
 };
 
-/* ================= CONSTANTS ================= */
+type RoleQuery = {
+  job_title: string;
+  family: string;
+  sub_family?: string;
+  level: string;
+  salary: number | "";
+  timestamp: number;
+};
+
+type BenchmarkResult = BenchmarkRow & {
+  diffToMedian: number | null;
+  percentile: number | null;
+};
 
 const currency = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -39,41 +53,96 @@ const currency = new Intl.NumberFormat("en-GB", {
   maximumFractionDigits: 0,
 });
 
-const FAMILY_OPTIONS = ["Finance", "HR", "Engineering", "Sales"];
-
-const SUB_FAMILY_OPTIONS: Record<string, string[]> = {
-  Engineering: ["Software", "Data", "Infrastructure", "Security"],
-  Finance: ["FP&A", "Accounting", "Treasury", "Tax"],
-  HR: ["Talent Acquisition", "People Operations", "Reward"],
-  Sales: ["Enterprise", "SMB", "Partnerships"],
-};
-
-const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4"];
-
 const recentRolesKey = "recentRoles";
 
-/* ================= HELPERS ================= */
+const FAMILY_OPTIONS = [
+  "Finance",
+  "HR",
+  "Engineering",
+  "Sales",
+];
+
+const SUB_FAMILY_OPTIONS: Record<string, string[]> = {
+  Engineering: [
+    "Software",
+    "Data",
+    "Infrastructure",
+    "Security",
+  ],
+  Finance: [
+    "FP&A",
+    "Accounting",
+    "Treasury",
+    "Tax",
+  ],
+  HR: [
+    "Talent Acquisition",
+    "People Operations",
+    "Reward",
+  ],
+  Sales: [
+    "Enterprise",
+    "SMB",
+    "Partnerships",
+  ],
+};
+
+const LEVEL_OPTIONS = [
+  "L1",
+  "L2",
+  "L3",
+  "L4",
+];
 
 function money(value: number | null | undefined) {
-  if (typeof value !== "number") return "N/A";
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "N/A";
+  }
+
   return currency.format(value);
 }
 
-function getPosition(
+function estimatePercentile(
+  salary: number,
+  p25: number,
+  p50: number,
+  p75: number
+) {
+  if (!p25 || !p50 || !p75) return null;
+
+  if (salary <= p25) {
+    return Math.max(0, 25 * (salary / p25));
+  }
+
+  if (salary <= p50) {
+    return 25 + 25 * ((salary - p25) / (p50 - p25));
+  }
+
+  if (salary <= p75) {
+    return 50 + 25 * ((salary - p50) / (p75 - p50));
+  }
+
+  return Math.min(100, 75 + 25 * ((salary - p75) / p75));
+}
+
+function getMarkerPosition(
   value: number,
   p25: number,
   p50: number,
   p75: number
 ) {
   if (value <= p25) return 0;
-  if (value <= p50)
-    return ((value - p25) / (p50 - p25 || 1)) * 50;
-  if (value <= p75)
-    return 50 + ((value - p50) / (p75 - p50 || 1)) * 50;
+
+  if (value <= p50) {
+    return ((value - p25) / (p50 - p25)) * 50;
+  }
+
+  if (value <= p75) {
+    return 50 + ((value - p50) / (p75 - p50)) * 50;
+  }
+
   return 100;
 }
-
-/* ================= COMPONENT ================= */
 
 export default function Home() {
   const [job_title, setJobTitle] = useState("");
@@ -83,59 +152,111 @@ export default function Home() {
   const [salary, setSalary] = useState<number | "">("");
 
   const [rows, setRows] = useState<BenchmarkRow[]>([]);
-  const [recentRoles, setRecentRoles] = useState<any[]>([]);
-  const [activeSalary, setActiveSalary] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [searched, setSearched] = useState(false);
 
-  const availableSubFamilies =
-    SUB_FAMILY_OPTIONS[family] || [];
+  const [recentRoles, setRecentRoles] = useState<RoleQuery[]>([]);
+  const [activeSalary, setActiveSalary] = useState<number | "">("");
 
-  /* ===== LOAD RECENT ===== */
   useEffect(() => {
-    const stored = localStorage.getItem(recentRolesKey);
-    if (stored) setRecentRoles(JSON.parse(stored));
+    try {
+      const stored = localStorage.getItem(recentRolesKey);
+
+      if (stored) {
+        setRecentRoles(JSON.parse(stored));
+      }
+    } catch {
+      localStorage.removeItem(recentRolesKey);
+    }
   }, []);
 
-  const saveRole = (role: any) => {
-    const updated = [role, ...recentRoles].slice(0, 3);
+  const saveRole = (role: RoleQuery) => {
+    const updated = [
+      role,
+      ...recentRoles.filter(
+        (r) =>
+          `${r.family}-${r.sub_family}-${r.level}-${r.salary}` !==
+          `${role.family}-${role.sub_family}-${role.level}-${role.salary}`
+      ),
+    ].slice(0, 3);
+
     setRecentRoles(updated);
+
     localStorage.setItem(
       recentRolesKey,
       JSON.stringify(updated)
     );
   };
 
-  /* ===== FETCH ===== */
+  const fetchBenchmarks = async (
+    override?: RoleQuery
+  ) => {
+    const selectedFamily = (
+      override?.family ?? family
+    ).trim();
 
-  const fetchBenchmarks = async (override?: any) => {
-    const selectedFamily = override?.family ?? family;
-    const selectedSubFamily =
-      override?.sub_family ?? sub_family;
-    const selectedLevel = override?.level ?? level;
-    const selectedSalary = override?.salary ?? salary;
+    const selectedSubFamily = (
+      override?.sub_family ?? sub_family ?? ""
+    ).trim();
 
-    // ✅ IMPORTANT FIX: ensure state is set
-    if (override?.level) setLevel(override.level);
-    if (override?.family) setFamily(override.family);
-    if (override?.sub_family) setSubFamily(override.sub_family);
+    const selectedLevel = (
+      override?.level ?? level
+    ).trim();
+
+    const selectedSalary =
+      override?.salary ?? salary;
 
     setActiveSalary(selectedSalary);
+
     setLoading(true);
+    setError("");
+    setSearched(true);
 
     try {
       let query = supabase
         .from("market_benchmarks")
-        .select("*");
+        .select(
+          "id,family,sub_family,level,p25,p50,p75"
+        );
 
-      if (selectedFamily)
-        query = query.eq("family", selectedFamily);
+      if (selectedFamily) {
+        query = query.eq(
+          "family",
+          selectedFamily
+        );
+      }
 
-      if (selectedSubFamily)
-        query = query.eq("sub_family", selectedSubFamily);
+      // OPTIONAL SUB FAMILY FILTER
+      if (selectedSubFamily) {
+        query = query.eq(
+          "sub_family",
+          selectedSubFamily
+        );
+      }
 
-      const { data } = await query;
+      if (selectedLevel) {
+        query = query.eq(
+          "level",
+          selectedLevel
+        );
+      }
 
-      setRows(data || []);
+      const { data, error } = await query.limit(1);
+
+      if (error) {
+        setError(error.message);
+        setRows([]);
+        return;
+      }
+
+      const safeData = data ?? [];
+
+      setRows(safeData);
+
+      if (safeData.length === 0) {
+        setError("No benchmark results found");
+      }
 
       if (!override && selectedFamily && selectedLevel) {
         saveRole({
@@ -147,221 +268,438 @@ export default function Home() {
           timestamp: Date.now(),
         });
       }
+    } catch {
+      setError("Unexpected error loading data");
+      setRows([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (
+    e: FormEvent<HTMLFormElement>
+  ) => {
     e.preventDefault();
     fetchBenchmarks();
   };
 
-  /* ✅ FIXED LOGIC */
+  const results = useMemo<BenchmarkResult[]>(() => {
+    const s =
+      typeof activeSalary === "number"
+        ? activeSalary
+        : 0;
 
-  const displayRows = useMemo(() => {
-    if (!level) return [];
+    return rows.map((row) => ({
+      ...row,
+      diffToMedian:
+        typeof activeSalary === "number"
+          ? s - row.p50
+          : null,
 
-    const currentRow = rows.find(
-      (r) => r.level === level
-    );
+      percentile:
+        typeof activeSalary === "number"
+          ? estimatePercentile(
+              s,
+              row.p25,
+              row.p50,
+              row.p75
+            )
+          : null,
+    }));
+  }, [rows, activeSalary]);
 
-    const nextLevel =
-      LEVEL_OPTIONS[
-        LEVEL_OPTIONS.indexOf(level) + 1
-      ];
-
-    const nextRow = rows.find(
-      (r) => r.level === nextLevel
-    );
-
-    return [currentRow, nextRow].filter(Boolean) as BenchmarkRow[];
-  }, [rows, level]);
-
-  /* ================= UI ================= */
+  const availableSubFamilies =
+    SUB_FAMILY_OPTIONS[family] || [];
 
   return (
-    <main className="min-h-screen bg-slate-50 p-6">
-      <div className="grid max-w-7xl mx-auto gap-6 lg:grid-cols-[380px_1fr]">
+    <main className="min-h-screen bg-slate-50 text-slate-950">
+      {/* HEADER */}
+      <section className="border-b bg-white">
+        <div className="mx-auto max-w-7xl px-6 py-8">
+          <Badge className="mb-3 bg-emerald-100 text-emerald-900">
+            Market Intelligence
+          </Badge>
 
+          <h1 className="text-3xl font-semibold">
+            Market Benchmark Tool
+          </h1>
+
+          <p className="mt-2 text-sm text-slate-600">
+            Compare salaries against market benchmarks.
+          </p>
+        </div>
+      </section>
+
+      {/* BODY */}
+      <section className="mx-auto grid max-w-7xl gap-6 px-6 py-6 lg:grid-cols-[380px_1fr]">
         {/* LEFT */}
         <aside className="space-y-4">
-
+          {/* SEARCH */}
           <Card>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <h2 className="mb-4 text-lg font-semibold">
+              Search
+            </h2>
 
-              <Input
-                placeholder="Job title"
-                value={job_title}
-                onChange={(e) =>
-                  setJobTitle(e.target.value)
-                }
-              />
+            <form
+              onSubmit={handleSubmit}
+              className="space-y-4"
+            >
+              <div>
+                <Label>Job Title</Label>
 
-              <select
-                value={family}
-                onChange={(e) => {
-                  setFamily(e.target.value);
-                  setSubFamily("");
-                }}
-                className="w-full border rounded px-3 py-2"
+                <Input
+                  value={job_title}
+                  onChange={(e) =>
+                    setJobTitle(e.target.value)
+                  }
+                />
+              </div>
+
+              <div>
+                <Label>Family</Label>
+
+                <select
+                  value={family}
+                  onChange={(e) => {
+                    setFamily(e.target.value);
+                    setSubFamily("");
+                  }}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">
+                    Select family
+                  </option>
+
+                  {FAMILY_OPTIONS.map((option) => (
+                    <option
+                      key={option}
+                      value={option}
+                    >
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* SUB FAMILY */}
+              <div>
+                <Label>Sub Family</Label>
+
+                <select
+                  value={sub_family}
+                  onChange={(e) =>
+                    setSubFamily(e.target.value)
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">
+                    All sub families
+                  </option>
+
+                  {availableSubFamilies.map(
+                    (option) => (
+                      <option
+                        key={option}
+                        value={option}
+                      >
+                        {option}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <Label>Level</Label>
+
+                <select
+                  value={level}
+                  onChange={(e) =>
+                    setLevel(e.target.value)
+                  }
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">
+                    Select level
+                  </option>
+
+                  {LEVEL_OPTIONS.map((option) => (
+                    <option
+                      key={option}
+                      value={option}
+                    >
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <Label>Salary</Label>
+
+                <Input
+                  type="number"
+                  value={salary}
+                  onChange={(e) =>
+                    setSalary(
+                      e.target.value
+                        ? Number(e.target.value)
+                        : ""
+                    )
+                  }
+                />
+              </div>
+
+              <Button
+                type="submit"
+                className="w-full"
               >
-                <option value="">Family</option>
-                {FAMILY_OPTIONS.map((f) => (
-                  <option key={f}>{f}</option>
-                ))}
-              </select>
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
 
-              <select
-                value={sub_family}
-                onChange={(e) =>
-                  setSubFamily(e.target.value)
-                }
-                className="w-full border rounded px-3 py-2"
-              >
-                <option value="">Sub-family</option>
-                {availableSubFamilies.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
-
-              <select
-                value={level}
-                onChange={(e) =>
-                  setLevel(e.target.value)
-                }
-                className="w-full border rounded px-3 py-2"
-              >
-                <option value="">Level</option>
-                {LEVEL_OPTIONS.map((l) => (
-                  <option key={l}>{l}</option>
-                ))}
-              </select>
-
-              <Input
-                type="number"
-                placeholder="Salary"
-                value={salary}
-                onChange={(e) =>
-                  setSalary(
-                    e.target.value
-                      ? Number(e.target.value)
-                      : ""
-                  )
-                }
-              />
-
-              <Button className="w-full">
-                {loading ? <Loader2 className="animate-spin" /> : <Search />}
                 Search
               </Button>
             </form>
           </Card>
 
-          {/* RECENT */}
+          {/* RECENT SEARCHES */}
           <Card>
-            <h2 className="flex gap-2 items-center font-semibold">
+            <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
               <Clock3 className="h-4 w-4" />
-              Recent
+              Recent Searches
             </h2>
 
-            {recentRoles.map((r: any) => (
-              <button
-                key={r.timestamp}
-                onClick={() => fetchBenchmarks(r)}
-                className="w-full text-left p-3 border rounded mt-2 hover:bg-slate-100"
-              >
-                <div>{r.job_title || "Untitled"}</div>
-                <div className="text-sm text-slate-500">
-                  {r.family} • {r.sub_family} • {r.level}
-                </div>
-                <div className="text-emerald-600 text-sm">
-                  {money(r.salary)}
-                </div>
-              </button>
-            ))}
+            {recentRoles.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No recent searches
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentRoles.map((r) => (
+                  <button
+                    key={r.timestamp}
+                    onClick={() =>
+                      fetchBenchmarks(r)
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:bg-slate-100"
+                  >
+                    <div className="font-medium text-slate-900">
+                      {r.job_title || "Untitled"}
+                    </div>
+
+                    <div className="mt-1 text-sm text-slate-500">
+                      {r.family}
+                      {r.sub_family
+                        ? ` • ${r.sub_family}`
+                        : ""}
+                      {" • "}
+                      {r.level}
+                    </div>
+
+                    <div className="mt-1 text-sm font-medium text-emerald-700">
+                      {money(
+                        typeof r.salary === "number"
+                          ? r.salary
+                          : null
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </Card>
         </aside>
 
         {/* RIGHT */}
         <section>
           <Card>
-            <h2 className="flex gap-2 items-center text-xl font-semibold">
-              <BarChart3 /> Level Comparison
+            <h2 className="flex items-center gap-2 text-xl font-semibold">
+              <BarChart3 className="h-5 w-5" />
+              Results
             </h2>
 
-            <div className="space-y-6 mt-6">
+            {loading && (
+              <div className="mt-6 flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading benchmark data...
+              </div>
+            )}
 
-              {displayRows.map((row) => {
-                const position =
-                  typeof activeSalary === "number"
-                    ? getPosition(
-                        activeSalary,
-                        row.p25,
-                        row.p50,
-                        row.p75
-                      )
-                    : null;
+            {!loading &&
+              searched &&
+              results.length === 0 && (
+                <p className="mt-6 text-sm text-slate-500">
+                  No results found
+                </p>
+              )}
 
-                const isSelected = row.level === level;
+            {error && (
+              <p className="mt-4 text-sm text-rose-600">
+                {error}
+              </p>
+            )}
 
-                return (
-                  <div key={row.level}>
+            <div className="mt-6 space-y-4">
+              {results.map((row, index) => (
+                <div
+                  key={index}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                >
+                  {/* HEADER */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">
+                        {row.family}
+                      </h3>
 
-                    <div className="flex justify-between mb-2">
-                      <div className="font-medium">
-                        {row.level} {isSelected && "(Selected)"}
-                      </div>
-                      <div className="text-sm text-slate-500">
-                        {row.family} • {row.sub_family}
-                      </div>
+                      <p className="text-sm text-slate-500">
+                        {row.sub_family
+                          ? `${row.sub_family} • `
+                          : ""}
+                        {row.level}
+                      </p>
                     </div>
 
-                    <div className="relative h-3 bg-slate-200 rounded-full">
+                    <div className="rounded-xl bg-emerald-50 px-4 py-2 text-right">
+                      <div className="text-xs uppercase tracking-wide text-emerald-700">
+                        Your Salary
+                      </div>
 
-                      <div
-                        className={`absolute left-0 w-1/2 h-full ${
-                          isSelected
-                            ? "bg-emerald-200"
-                            : "bg-slate-300"
-                        }`}
-                      />
-
-                      <div
-                        className={`absolute right-0 w-1/2 h-full ${
-                          isSelected
-                            ? "bg-emerald-500"
-                            : "bg-slate-500"
-                        }`}
-                      />
-
-                      <div className="absolute left-1/2 top-1/2 w-1 h-4 bg-black -translate-x-1/2 -translate-y-1/2" />
-
-                      {position !== null && (
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2"
-                          style={{ left: `${position}%` }}
-                        >
-                          <div className="h-4 w-4 bg-black rounded-full border-2 border-white shadow" />
-                          <div className="text-xs mt-1 text-center">
-                            {money(activeSalary as number)}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex justify-between text-xs text-slate-500 mt-2">
-                      <span>P25 {money(row.p25)}</span>
-                      <span>P50 {money(row.p50)}</span>
-                      <span>P75 {money(row.p75)}</span>
+                      <div className="text-xl font-bold text-emerald-900">
+                        {money(
+                          typeof activeSalary === "number"
+                            ? activeSalary
+                            : null
+                        )}
+                      </div>
                     </div>
                   </div>
-                );
-              })}
+
+                  {/* BENCHMARK BAR */}
+                  <div className="relative mt-6">
+                    <div className="relative h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div className="absolute left-0 top-0 h-full w-1/2 bg-emerald-200" />
+
+                      <div className="absolute right-0 top-0 h-full w-1/2 bg-emerald-400" />
+                    </div>
+
+                    {/* P50 DOT */}
+                    <div
+                      className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-slate-900 shadow"
+                      style={{ left: "50%" }}
+                    />
+
+                    {/* USER DOT */}
+                    {typeof activeSalary ===
+                      "number" && (
+                      <div
+                        className="absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white bg-emerald-500 shadow-lg"
+                        style={{
+                          left: `${getMarkerPosition(
+                            activeSalary,
+                            row.p25,
+                            row.p50,
+                            row.p75
+                          )}%`,
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* LABELS UNDER BAR */}
+                  <div className="mt-2 flex justify-between text-xs text-slate-500">
+                    <div>
+                      P25 • {money(row.p25)}
+                    </div>
+
+                    <div>
+                      P50 • {money(row.p50)}
+                    </div>
+
+                    <div>
+                      P75 • {money(row.p75)}
+                    </div>
+                  </div>
+
+                  {/* BENCHMARK CARDS */}
+                  <div className="mt-6 grid grid-cols-3 gap-4">
+                    <div className="rounded-xl bg-slate-50 p-3 text-center">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        P25
+                      </div>
+
+                      <div className="mt-1 text-lg font-semibold">
+                        {money(row.p25)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-100 p-3 text-center ring-1 ring-slate-200">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        P50
+                      </div>
+
+                      <div className="mt-1 text-lg font-bold">
+                        {money(row.p50)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3 text-center">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        P75
+                      </div>
+
+                      <div className="mt-1 text-lg font-semibold">
+                        {money(row.p75)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FOOTER */}
+                  <div className="mt-5 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        Market Position
+                      </div>
+
+                      <div className="mt-1 text-sm font-semibold text-slate-900">
+                        {row.percentile
+                          ? `~${Math.round(
+                              row.percentile
+                            )}th percentile`
+                          : "Not available"}
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-xs uppercase tracking-wide text-slate-500">
+                        vs Median
+                      </div>
+
+                      <div
+                        className={`mt-1 text-sm font-semibold ${
+                          (row.diffToMedian ?? 0) >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }`}
+                      >
+                        {(row.diffToMedian ?? 0) >= 0
+                          ? "+"
+                          : ""}
+                        {money(
+                          row.diffToMedian ?? 0
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
         </section>
-      </div>
+      </section>
     </main>
   );
 }
